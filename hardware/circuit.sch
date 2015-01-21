@@ -1,0 +1,281 @@
+EESchema Schematic File Version 2
+LIBS:power
+LIBS:device
+LIBS:transistors
+LIBS:conn
+LIBS:linear
+LIBS:regul
+LIBS:74xx
+LIBS:cmos4000
+LIBS:adc-dac
+LIBS:memory
+LIBS:xilinx
+LIBS:special
+LIBS:microcontrollers
+LIBS:dsp
+LIBS:microchip
+LIBS:analog_switches
+LIBS:motorola
+LIBS:texas
+LIBS:intel
+LIBS:audio
+LIBS:interface
+LIBS:digital-audio
+LIBS:philips
+LIBS:display
+LIBS:cypress
+LIBS:siliconi
+LIBS:opto
+LIBS:atmel
+LIBS:contrib
+LIBS:valves
+LIBS:custom
+LIBS:tap-cache
+EELAYER 24 0
+EELAYER END
+$Descr A4 11693 8268
+encoding utf-8
+Sheet 1 5
+Title ""
+Date ""
+Rev ""
+Comp ""
+Comment1 ""
+Comment2 ""
+Comment3 ""
+Comment4 ""
+$EndDescr
+$Comp
+L G6K-2F-RF U1
+U 1 1 5462A0E4
+P 3300 3650
+AR Path="/5462A4B0/5462A0E4" Ref="U1"  Part="1" 
+AR Path="/5462AB70/5462A0E4" Ref="U3"  Part="1" 
+AR Path="/5462B53B/5462A0E4" Ref="U5"  Part="1" 
+AR Path="/5462B541/5462A0E4" Ref="U7"  Part="1" 
+F 0 "U1" H 3650 3400 60  0000 C CNN
+F 1 "G6K-2F-RF" V 2900 3850 60  0000 C CNN
+F 2 "" H 3550 3450 60  0000 C CNN
+F 3 "" H 3550 3450 60  0000 C CNN
+	1    3300 3650
+	1    0    0    -1  
+$EndComp
+$Comp
+L CONN_2 P1
+U 1 1 5462A102
+P 2050 3600
+AR Path="/5462A4B0/5462A102" Ref="P1"  Part="1" 
+AR Path="/5462AB70/5462A102" Ref="P6"  Part="1" 
+AR Path="/5462B53B/5462A102" Ref="P11"  Part="1" 
+AR Path="/5462B541/5462A102" Ref="P16"  Part="1" 
+F 0 "P1" V 2000 3600 40  0000 C CNN
+F 1 "H" V 2100 3600 40  0000 C CNN
+F 2 "" H 2050 3600 60  0000 C CNN
+F 3 "" H 2050 3600 60  0000 C CNN
+	1    2050 3600
+	-1   0    0    -1  
+$EndComp
+$Comp
+L CONN_2 P5
+U 1 1 5462A119
+P 6350 3600
+AR Path="/5462A4B0/5462A119" Ref="P5"  Part="1" 
+AR Path="/5462AB70/5462A119" Ref="P10"  Part="1" 
+AR Path="/5462B53B/5462A119" Ref="P15"  Part="1" 
+AR Path="/5462B541/5462A119" Ref="P20"  Part="1" 
+F 0 "P5" V 6300 3600 40  0000 C CNN
+F 1 "D" V 6400 3600 40  0000 C CNN
+F 2 "" H 6350 3600 60  0000 C CNN
+F 3 "" H 6350 3600 60  0000 C CNN
+	1    6350 3600
+	1    0    0    -1  
+$EndComp
+$Comp
+L CONN_2 P2
+U 1 1 5462A137
+P 3150 5100
+AR Path="/5462A4B0/5462A137" Ref="P2"  Part="1" 
+AR Path="/5462AB70/5462A137" Ref="P7"  Part="1" 
+AR Path="/5462B53B/5462A137" Ref="P12"  Part="1" 
+AR Path="/5462B541/5462A137" Ref="P17"  Part="1" 
+F 0 "P2" V 3100 5100 40  0000 C CNN
+F 1 "HTAP" V 3200 5100 40  0000 C CNN
+F 2 "" H 3150 5100 60  0000 C CNN
+F 3 "" H 3150 5100 60  0000 C CNN
+	1    3150 5100
+	0    -1   1    0   
+$EndComp
+$Comp
+L G6K-2F-RF U2
+U 1 1 5462A13D
+P 4800 3650
+AR Path="/5462A4B0/5462A13D" Ref="U2"  Part="1" 
+AR Path="/5462AB70/5462A13D" Ref="U4"  Part="1" 
+AR Path="/5462B53B/5462A13D" Ref="U6"  Part="1" 
+AR Path="/5462B541/5462A13D" Ref="U8"  Part="1" 
+F 0 "U2" H 5150 3400 60  0000 C CNN
+F 1 "G6K-2F-RF" V 4400 3850 60  0000 C CNN
+F 2 "" H 5050 3450 60  0000 C CNN
+F 3 "" H 5050 3450 60  0000 C CNN
+	1    4800 3650
+	1    0    0    -1  
+$EndComp
+$Comp
+L CONN_2 P3
+U 1 1 5462A19A
+P 3550 5100
+AR Path="/5462A4B0/5462A19A" Ref="P3"  Part="1" 
+AR Path="/5462AB70/5462A19A" Ref="P8"  Part="1" 
+AR Path="/5462B53B/5462A19A" Ref="P13"  Part="1" 
+AR Path="/5462B541/5462A19A" Ref="P18"  Part="1" 
+F 0 "P3" V 3500 5100 40  0000 C CNN
+F 1 "PTAP" V 3600 5100 40  0000 C CNN
+F 2 "" H 3550 5100 60  0000 C CNN
+F 3 "" H 3550 5100 60  0000 C CNN
+	1    3550 5100
+	0    1    1    0   
+$EndComp
+$Comp
+L CONN_2 P4
+U 1 1 5462A1AC
+P 5050 5100
+AR Path="/5462A4B0/5462A1AC" Ref="P4"  Part="1" 
+AR Path="/5462AB70/5462A1AC" Ref="P9"  Part="1" 
+AR Path="/5462B53B/5462A1AC" Ref="P14"  Part="1" 
+AR Path="/5462B541/5462A1AC" Ref="P19"  Part="1" 
+F 0 "P4" V 5000 5100 40  0000 C CNN
+F 1 "DTAP" V 5100 5100 40  0000 C CNN
+F 2 "" H 5050 5100 60  0000 C CNN
+F 3 "" H 5050 5100 60  0000 C CNN
+	1    5050 5100
+	0    1    1    0   
+$EndComp
+Wire Wire Line
+	2400 3500 2500 3500
+Wire Wire Line
+	2500 3500 2500 2750
+Wire Wire Line
+	2500 2750 4750 2750
+Wire Wire Line
+	3350 2750 3350 3050
+Wire Wire Line
+	3750 2850 3750 4750
+Connection ~ 3350 2750
+Wire Wire Line
+	6000 2750 6000 3500
+Wire Wire Line
+	4850 2750 6000 2750
+Wire Wire Line
+	3250 3050 3250 2850
+Wire Wire Line
+	3250 2850 2850 2850
+Wire Wire Line
+	3450 3050 3450 2850
+Wire Wire Line
+	3450 2850 3750 2850
+Wire Wire Line
+	2400 3700 2400 4400
+Wire Wire Line
+	2400 4400 4750 4400
+Wire Wire Line
+	3350 4150 3350 4400
+Connection ~ 3350 4400
+Wire Wire Line
+	6000 3700 6000 4400
+Wire Wire Line
+	3450 4150 3450 4750
+Wire Wire Line
+	4850 3050 4850 2750
+Wire Wire Line
+	4850 4150 4850 4400
+Wire Wire Line
+	4850 4400 6000 4400
+Wire Wire Line
+	4750 4400 4750 4150
+Wire Wire Line
+	4750 2750 4750 3050
+Wire Wire Line
+	4950 3050 5250 3050
+Wire Wire Line
+	5250 3050 5250 4750
+Wire Wire Line
+	5250 4750 5150 4750
+Wire Wire Line
+	4950 4150 4950 4750
+Wire Wire Line
+	3750 4750 3650 4750
+Wire Wire Line
+	3250 4150 3250 4750
+Wire Wire Line
+	2850 2850 2850 4750
+Wire Wire Line
+	2850 4750 3050 4750
+$Comp
+L AGND #PWR041
+U 1 1 5462A6FD
+P 2650 3750
+AR Path="/5462A4B0/5462A6FD" Ref="#PWR041"  Part="1" 
+AR Path="/5462AB70/5462A6FD" Ref="#PWR045"  Part="1" 
+AR Path="/5462B53B/5462A6FD" Ref="#PWR049"  Part="1" 
+AR Path="/5462B541/5462A6FD" Ref="#PWR053"  Part="1" 
+F 0 "#PWR041" H 2650 3750 40  0001 C CNN
+F 1 "AGND" H 2650 3680 50  0000 C CNN
+F 2 "" H 2650 3750 60  0000 C CNN
+F 3 "" H 2650 3750 60  0000 C CNN
+	1    2650 3750
+	0    1    1    0   
+$EndComp
+$Comp
+L AGND #PWR042
+U 1 1 5462A70C
+P 3950 3450
+AR Path="/5462A4B0/5462A70C" Ref="#PWR042"  Part="1" 
+AR Path="/5462AB70/5462A70C" Ref="#PWR046"  Part="1" 
+AR Path="/5462B53B/5462A70C" Ref="#PWR050"  Part="1" 
+AR Path="/5462B541/5462A70C" Ref="#PWR054"  Part="1" 
+F 0 "#PWR042" H 3950 3450 40  0001 C CNN
+F 1 "AGND" H 3950 3380 50  0000 C CNN
+F 2 "" H 3950 3450 60  0000 C CNN
+F 3 "" H 3950 3450 60  0000 C CNN
+	1    3950 3450
+	0    -1   -1   0   
+$EndComp
+$Comp
+L AGND #PWR043
+U 1 1 5462A71B
+P 4150 3750
+AR Path="/5462A4B0/5462A71B" Ref="#PWR043"  Part="1" 
+AR Path="/5462AB70/5462A71B" Ref="#PWR047"  Part="1" 
+AR Path="/5462B53B/5462A71B" Ref="#PWR051"  Part="1" 
+AR Path="/5462B541/5462A71B" Ref="#PWR055"  Part="1" 
+F 0 "#PWR043" H 4150 3750 40  0001 C CNN
+F 1 "AGND" H 4150 3680 50  0000 C CNN
+F 2 "" H 4150 3750 60  0000 C CNN
+F 3 "" H 4150 3750 60  0000 C CNN
+	1    4150 3750
+	0    1    1    0   
+$EndComp
+$Comp
+L AGND #PWR044
+U 1 1 5462A72A
+P 5450 3450
+AR Path="/5462A4B0/5462A72A" Ref="#PWR044"  Part="1" 
+AR Path="/5462AB70/5462A72A" Ref="#PWR048"  Part="1" 
+AR Path="/5462B53B/5462A72A" Ref="#PWR052"  Part="1" 
+AR Path="/5462B541/5462A72A" Ref="#PWR056"  Part="1" 
+F 0 "#PWR044" H 5450 3450 40  0001 C CNN
+F 1 "AGND" H 5450 3380 50  0000 C CNN
+F 2 "" H 5450 3450 60  0000 C CNN
+F 3 "" H 5450 3450 60  0000 C CNN
+	1    5450 3450
+	0    -1   -1   0   
+$EndComp
+Text HLabel 3150 4150 3    60   Input ~ 0
+HC+
+Text HLabel 3150 3050 1    60   Input ~ 0
+HC-
+Text HLabel 4650 4150 3    60   Input ~ 0
+DC+
+Text HLabel 4650 3050 1    60   Input ~ 0
+DC-
+$EndSCHEMATC

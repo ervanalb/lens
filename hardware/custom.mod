@@ -1,0 +1,175 @@
+PCBNEW-LibModule-V1  Tue 11 Nov 2014 07:41:06 PM EST
+# encoding utf-8
+Units mm
+$INDEX
+G6K-2F-RF
+DFN_10
+$EndINDEX
+$MODULE G6K-2F-RF
+Po 0 0 0 15 5462AC9D 00000000 ~~
+Li G6K-2F-RF
+Sc 0
+AR 
+Op 0 0 0
+T0 6 1.6 1 1 900 0.15 N V 21 N "G6K-2F-RF"
+T1 0 0 1 1 0 0.15 N V 21 N "VAL**"
+DS -5.15 -3.45 -5.15 3.45 0.15 21
+DS -5.15 3.45 5.15 3.45 0.15 21
+DS 5.15 3.45 5.15 -3.45 0.15 21
+DS -5.15 -3.45 5.15 -3.45 0.15 21
+$PAD
+Sh "1" R 0.8 1.8 0 0 0
+Dr 0 0 0
+At SMD N 00888000
+Ne 0 ""
+Po -3.8 3.5
+$EndPAD
+$PAD
+Sh "2" R 0.8 1.8 0 0 0
+Dr 0 0 0
+At SMD N 00888000
+Ne 0 ""
+Po -0.4 3.5
+$EndPAD
+$PAD
+Sh "3" R 0.8 1.8 0 0 0
+Dr 0 0 0
+At SMD N 00888000
+Ne 0 ""
+Po 1.6 3.5
+$EndPAD
+$PAD
+Sh "4" R 0.8 1.8 0 0 0
+Dr 0 0 0
+At SMD N 00888000
+Ne 0 ""
+Po 3.8 3.5
+$EndPAD
+$PAD
+Sh "5" R 0.8 1.8 0 0 0
+Dr 0 0 0
+At SMD N 00888000
+Ne 0 ""
+Po 3.8 -3.5
+$EndPAD
+$PAD
+Sh "6" R 0.8 1.8 0 0 0
+Dr 0 0 0
+At SMD N 00888000
+Ne 0 ""
+Po 1.6 -3.5
+$EndPAD
+$PAD
+Sh "7" R 0.8 1.8 0 0 0
+Dr 0 0 0
+At SMD N 00888000
+Ne 0 ""
+Po -0.4 -3.5
+$EndPAD
+$PAD
+Sh "8" R 0.8 1.8 0 0 0
+Dr 0 0 0
+At SMD N 00888000
+Ne 0 ""
+Po -3.8 -3.5
+$EndPAD
+$PAD
+Sh "9" R 2.5 2.5 0 0 0
+Dr 0 0 0
+At SMD N 00888000
+Ne 0 ""
+Po -5.75 1.75
+$EndPAD
+$PAD
+Sh "10" R 2.5 2.5 0 0 0
+Dr 0 0 0
+At SMD N 00888000
+Ne 0 ""
+Po 5.75 -1.75
+$EndPAD
+$EndMODULE G6K-2F-RF
+$MODULE DFN_10
+Po 0 0 0 15 53C87E37 00000000 ~~
+Li DFN_10
+Sc 0
+AR 
+Op 0 0 0
+T0 0 2.5 1 1 0 0.15 N V 21 N "DFN_10"
+T1 0 -2.5 1 1 0 0.15 N V 21 N "VAL**"
+DC -1.5 -1.5 -1.7 -1.5 0.15 21
+DS -1 -1 1 -1 0.15 21
+DS 1 -1 1 1 0.15 21
+DS 1 1 -1 1 0.15 21
+DS -1 1 -1 -1 0.15 21
+$PAD
+Sh "1" R 0.6 0.226 0 0 0
+Dr 0 0 0
+At SMD N 00888000
+Ne 0 ""
+Po -0.9 -0.8
+$EndPAD
+$PAD
+Sh "2" R 0.6 0.226 0 0 0
+Dr 0 0 0
+At SMD N 00888000
+Ne 0 ""
+Po -0.9 -0.4
+$EndPAD
+$PAD
+Sh "3" R 0.6 0.226 0 0 0
+Dr 0 0 0
+At SMD N 00888000
+Ne 0 ""
+Po -0.9 0
+$EndPAD
+$PAD
+Sh "4" R 0.6 0.226 0 0 0
+Dr 0 0 0
+At SMD N 00888000
+Ne 0 ""
+Po -0.9 0.4
+$EndPAD
+$PAD
+Sh "5" R 0.6 0.226 0 0 0
+Dr 0 0 0
+At SMD N 00888000
+Ne 0 ""
+Po -0.9 0.8
+$EndPAD
+$PAD
+Sh "6" R 0.6 0.226 0 0 0
+Dr 0 0 0
+At SMD N 00888000
+Ne 0 ""
+Po 0.9 0.8
+$EndPAD
+$PAD
+Sh "7" R 0.6 0.226 0 0 0
+Dr 0 0 0
+At SMD N 00888000
+Ne 0 ""
+Po 0.9 0.4
+$EndPAD
+$PAD
+Sh "8" R 0.6 0.226 0 0 0
+Dr 0 0 0
+At SMD N 00888000
+Ne 0 ""
+Po 0.9 0
+$EndPAD
+$PAD
+Sh "9" R 0.6 0.226 0 0 0
+Dr 0 0 0
+At SMD N 00888000
+Ne 0 ""
+Po 0.9 -0.4
+$EndPAD
+$PAD
+Sh "10" R 0.6 0.226 0 0 0
+Dr 0 0 0
+At SMD N 00888000
+Ne 0 ""
+Po 0.9 -0.8
+$EndPAD
+$EndMODULE DFN_10
+$EndLIBRARY
