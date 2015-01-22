@@ -51,13 +51,11 @@ class Ethernet(object):
                 a=alice_sock.recv(self.SNAPLEN)
                 if self.debug:
                     print("ALICE:",' '.join([hex(c) for c in a]))
-                #b_w += a
-                self.alice_fn(b, self.alice_write, self.bob_write)
+                self.alice_fn(a, self.alice_write, self.bob_write)
             if bob_sock in r:
                 b=bob_sock.recv(self.SNAPLEN)
                 if self.debug:
                     print("BOB:",' '.join([hex(c) for c in b]))
-                #a_w += b
                 self.bob_fn(b, self.bob_write, self.alice_write)
             if alice_sock in w:
                 while True:
