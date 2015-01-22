@@ -19,7 +19,7 @@ class Ethernet(object):
 
     SNAPLEN=65536
 
-    def __init__(self, alice_fn, bob_fn, debug=True, tap=True):
+    def __init__(self, alice_fn, bob_fn, tap=True, debug=False):
         self.alice_fn = alice_fn
         self.bob_fn = bob_fn
         self.debug = debug
@@ -81,7 +81,6 @@ class Ethernet(object):
                             self.a_w.task_done()
                         except queue.Empty:
                             break
-                        print("Alice write:", len(wd))
                         l=alice_sock.send(wd)
                 if bob_sock in w:
                     while True:
@@ -90,7 +89,6 @@ class Ethernet(object):
                             self.b_w.task_done()
                         except queue.Empty:
                             break
-                        print("Bob write:", len(wd))
                         l=bob_sock.send(wd)
                 if alice_sock in e:
                     raise "ALICE EXCEPTION"
@@ -99,20 +97,3 @@ class Ethernet(object):
         finally:
             if self.tap:
                 self.tap.passthru()
-
-# receive a packet
-#while True:
-#    try:
-#        a=alice_sock.recv(65536)
-#        print("ALICE:",' '.join([hex(c) for c in a]))
-#        print(bob_sock.send(a))
-#    except socket.error as e:
-#        if e.errno != 11:
-#            raise
-#    try:
-#        b=bob_sock.recv(65536)
-#        print("BOB:",' '.join([hex(c) for c in b]))
-#        print(alice_sock.send(b))
-#    except socket.error as e:
-#        if e.errno != 11:
-#            raise
