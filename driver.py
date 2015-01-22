@@ -48,9 +48,11 @@ class Tap:
 
     def passthru(self):
         self.set_relays(0x5555)
+        self.set_led(False)
 
     def mitm(self):
         self.set_relays(0xAAAA)
+        self.set_led(True)
 
 if __name__=='__main__':
     d=Tap()
