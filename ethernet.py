@@ -17,7 +17,7 @@ class Ethernet(object):
     alice_nic="enp0s20u3u2"
     bob_nic="enp0s20u3u3"
 
-    SNAPLEN=65536
+    SNAPLEN=1518
 
     def __init__(self, alice_fn, bob_fn, tap=True, debug=False):
         self.alice_fn = alice_fn
@@ -68,11 +68,15 @@ class Ethernet(object):
                     a=alice_sock.recv(self.SNAPLEN)
                     if self.debug:
                         print("ALICE:",' '.join([hex(c) for c in a]))
+                    #FIXME: strip final two bytes
+                    a = a[:-2]
                     self.alice_fn(a, self.alice_write, self.bob_write)
                 if bob_sock in r:
                     b=bob_sock.recv(self.SNAPLEN)
                     if self.debug:
                         print("BOB:",' '.join([hex(c) for c in b]))
+                    #FIXME: strip final two bytes
+                    b = b[:-2]
                     self.bob_fn(b, self.bob_write, self.alice_write)
                 if alice_sock in w:
                     while True:
