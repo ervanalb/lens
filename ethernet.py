@@ -95,20 +95,3 @@ class Ethernet(object):
         finally:
             if self.tap:
                 self.tap.passthru()
-
-# receive a packet
-#while True:
-#    try:
-#        a=alice_sock.recv(65536)
-#        print("ALICE:",' '.join([hex(c) for c in a]))
-#        print(bob_sock.send(a))
-#    except socket.error as e:
-#        if e.errno != 11:
-#            raise
-#    try:
-#        b=bob_sock.recv(65536)
-#        print("BOB:",' '.join([hex(c) for c in b]))
-#        print(alice_sock.send(b))
-#    except socket.error as e:
-#        if e.errno != 11:
-#            raise
