@@ -5,6 +5,7 @@ ETH_P_ALL = 3
 
 import socket
 import select
+import queue
 
 class Ethernet(object):
     alice_nic="enp0s20u3u2"
@@ -24,24 +25,24 @@ class Ethernet(object):
         self.bob_fn = bob_fn
         self.debug = debug
 
-        self.a_w = bytearray()
-        self.b_w = bytearray()
+        self.a_w = queue.Queue()
+        self.b_w = queue.Queue()
 
     def alice_write(self, data):
-        self.a_w += data
+        self.a_w.put(data)
 
     def bob_write(self, data):
-        self.b_w += data
+        self.b_w.put(data)
 
     def run(self):
-        alice_sock=attach(self.alice_nic)
-        bob_sock=attach(self.bob_nic)
+        alice_sock = self.attach(self.alice_nic)
+        bob_sock = self.attach(self.bob_nic)
 
         while True:
             to_w=[]
-            if len(a_w) > 0:
+            if not self.a_w.empty():
                 to_w.append(alice_sock)
-            if len(b_w) > 0:
+            if not self.b_w.empty():
                 to_w.append(bob_sock)
 
             r,w,e=select.select([alice_sock,bob_sock],to_w,[alice_sock,bob_sock])
@@ -59,11 +60,23 @@ class Ethernet(object):
                 #a_w += b
                 self.bob_fn(b, self.bob_write, self.alice_write)
             if alice_sock in w:
-                l=alice_sock.send(a_w)
-                a_w=a_w[l:]
+                while True:
+                    try:
+                        wd = self.a_w.get_nowait()
+                        self.a_w.task_done()
+                    except queue.Empty:
+                        break
+                    print("Alice write:", len(wd))
+                    l=alice_sock.send(wd)
             if bob_sock in w:
-                l=bob_sock.send(b_w)
-                b_w=b_w[l:]
+                while True:
+                    try:
+                        wd = self.b_w.get_nowait()
+                        self.b_w.task_done()
+                    except queue.Empty:
+                        break
+                    print("Bob write:", len(wd))
+                    l=bob_sock.send(wd)
             if alice_sock in e:
                 raise "ALICE EXCEPTION"
             if alice_sock in e:
