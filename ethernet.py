@@ -5,9 +5,13 @@ ETH_P_ALL = 3
 
 import socket
 import select
-import queue
 import subprocess
 import driver
+
+try:
+    import queue
+except:
+    import Queue as queue
 
 class Ethernet(object):
     alice_nic="enp0s20u3u2"
