@@ -1,6 +1,6 @@
 import scapy.all as sc
 
-def ipv4_prudish_mode(addr):
+def ipv4_prudish_mode(addr, drop=True):
     # Opposite of promisc. mode
     # Filter out IP packets not routed to a particular IP
     def _filter_fn(fn):
@@ -14,6 +14,8 @@ def ipv4_prudish_mode(addr):
             if l.src == addr or l.dst == addr:
                 # Match: pass it on
                 return fn(sent_data, write_back, write_fwd)
+            elif not drop:
+                return write_fwd(sent_data)
             # Drop the packet
         return _fn
     return _filter_fn
