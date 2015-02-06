@@ -1,3 +1,4 @@
+#!/usr/bin/python2
 import ethernet 
 import driver
 import scapy.all as sc
@@ -51,17 +52,24 @@ def conn_pkt(conn, from_recv, flags=""):
     payload = ""
     tosend = getr('tosend')
     if tosend:
-        payload = tosend[:1400]
-        conn[prefix_r + "tosend"] = tosend[1400:]
-        flags += "P"
+        if getr('unacked'):
+            print "waiting on ack on", getr('unacked')
+        else:
+            payload = tosend[:1400]
+            conn[prefix_r + "tosend"] = tosend[1400:]
+            flags += "P"
+            getr('unacked').append((getr('seq'), payload))
 
     pkt_tcp = sc.TCP(sport=get("port"), dport=getr("port"),
-                     seq=get("seq"), ack=get("ack"),
+                     seq=getr("seq"), ack=getr("ack"),
                      window=8192,
-                     options   = [('Timestamp', (0, 0)), ('EOL', None)],
+                     #options   = [('Timestamp', (0, 0)), ('EOL', None)],
                      flags=flags
                      )
-    return pkt / pkt_tcp / payload
+    p =  pkt / pkt_tcp / payload
+    p.show2()
+    #print "SENDING PACKET", flags, (getr('seq'), getr('ack')), from_recv, p["IP"].chksum, repr(p)
+    return p
 
 # Example Sequence Diagram
 # Data between the D channels can be modified arbitrarily
@@ -87,14 +95,18 @@ def conn_pkt(conn, from_recv, flags=""):
 
 connections = {}
 
-def make_sandwich(side):
-    @ipv4_prudish_mode(addr="18.238.5.169", drop=False)
+
+def make_sandwich(side, ip_addr):
+    @ipv4_prudish_mode(addr=ip_addr, drop=False)
     def _sandwich(sent_data, write_back, write_fwd):
         p = sc.Ether(sent_data)
         #print repr(p)
         if "TCP" in p:
             p_ip = p["IP"]
             p_tcp = p["TCP"]
+            if p_tcp.sport == 22 or p_tcp.dport == 22:
+                # SSH passthrough for debugging
+                return write_fwd(sent_data)
             conn_id = connection_id(p)
             is_receiver = False
 
@@ -116,56 +128,66 @@ def make_sandwich(side):
 
             if has_payload(p_tcp) and not p_tcp.flags & SYN:
                 if conn["state"] == TCPState.SPLIT:
+                    print "DATA ---------", len(p_tcp.load), conn
+                    print repr(p_tcp)
                     if is_receiver:
                         if conn["recv_ack"] == p_tcp.seq: # No effort to reconstruct out-of-order packets yet
                             size = len(p_tcp.load)
                             conn["recv_load"] += p_tcp.load
-                            conn["send_tosend"] += p_tcp.load
+                            conn["send_tosend"] += p_tcp.load.replace('butt', 'cloud')
                             conn["recv_ack"] += size
-                            conn["recv_seq"] = p_tcp.seq
+                            #conn["recv_seq"] = p_tcp.seq
                             # Respond to new data with ACK
                             p_ack = conn_pkt(conn, from_recv=False, flags="A")
                             write_back(str(p_ack))
+
+                            p_fwd = conn_pkt(conn, from_recv=True, flags="A")
+                            write_fwd(str(p_fwd))
                         else:
-                            print "NOT ACKING PACKET, out of order", conn["recv_ack"], repr(p_tcp)
+                            print "NOT ACKING PACKET, out of order, R", conn, repr(p_tcp)
                     else:
                         if conn["send_ack"] == p_tcp.seq: # No effort to reconstruct out-of-order packets yet
                             size = len(p_tcp.load)
                             conn["send_load"] += p_tcp.load
-                            conn["recv_tosend"] += p_tcp.load
+                            conn["recv_tosend"] += p_tcp.load.replace('butt', 'cloud')
                             conn["send_ack"] += size
-                            conn["send_seq"] = p_tcp.seq
+                            #conn["send_seq"] = p_tcp.seq
                             # Respond to new data with ACK
-                            p_ack = conn_pkt(conn, from_recv=False, flags="A")
+                            p_ack = conn_pkt(conn, from_recv=True, flags="A")
                             write_back(str(p_ack))
+
+                            p_fwd = conn_pkt(conn, from_recv=False, flags="A")
+                            write_fwd(str(p_fwd))
                         else:
-                            print "NOT ACKING PACKET, out of order", conn["recv_ack"], repr(p_tcp)
-                    print "DATA ---------"
+                            print "NOT ACKING PACKET, out of order, S", conn, repr(p_tcp)
                 else:
                     # We didn't capture the beginning, so don't muck with it
                     write_fwd(sent_data)
 
             if p_tcp.flags & SYN:
-                print side, "SYN", conn_id, conn
+                print side, "SYN", conn_id, conn, p_tcp.seq, p_tcp.ack
                 ex_pkt = p.copy()
                 ex_pkt["IP"].remove_payload()
+                print "ORIG CHECKSUM:", ex_pkt["IP"].chksum
                 del ex_pkt["IP"].chksum
+                del ex_pkt["IP"].len
                 if p_tcp.flags & ACK: # SYNACK, Reciever
                     # Step 2: Recieve a SYNACK
                     #         Respond back with ACK, assuming the connection will succeed 
                     #         Send forward a SYNACK 
                     if not is_receiver:
                         raise Exception("Weird sequencing")
-                    if p_tcp.ack != conn["send_ack"] + 1:
+                    if p_tcp.ack != conn["send_ack"]:
                         print "INVALID SYNACK", p_tcp.ack, conn["send_ack"]
                     else:
                         print "VALID SYNACK"
-                    conn["send_seq"] = p_tcp.seq
+                    conn["send_seq"] = p_tcp.seq + 1
                     conn["send_ack"] = p_tcp.ack
                     conn["recv_seq"] = p_tcp.ack
-                    conn["recv_ack"] = p_tcp.seq
+                    conn["recv_ack"] = p_tcp.seq + 1
                     conn["recv_load"] = ""
                     conn["recv_tosend"] = ""
+                    conn["recv_unacked"] = []
                     conn["recv_pkt"] = ex_pkt
                     conn["state"] = TCPState.SPLIT
 
@@ -187,23 +209,26 @@ def make_sandwich(side):
                     conn["send_port"] = p_tcp.sport 
                     conn["recv_port"] = p_tcp.dport
                     conn["recv_seq"] = p_tcp.seq 
-                    conn["send_ack"] = p_tcp.seq
+                    conn["send_ack"] = p_tcp.seq + 1
                     conn["send_load"] = ""
                     conn["send_tosend"] = ""
+                    conn["send_unacked"] = []
                     conn["send_pkt"] = ex_pkt
                     conn["state"] = TCPState.SEEN_SYN
                     # Respond with the exact packet that was recieved
                     write_fwd(str(p))
 
             elif p_tcp.flags & ACK: 
-                print "unsplit ACK"
                 if conn["state"] == TCPState.SPLIT:
                     # Maybe there should also be some checks or something?
+                    #print 'ack, isR:', is_receiver, p_tcp.ack, conn
                     if is_receiver: 
-                        conn["recv_ack"] = p_tcp.ack
+                        conn["recv_unacked"] = filter(lambda (s, p): s < p_tcp.ack, conn["recv_unacked"])
                     else:
-                        conn["send_ack"] = p_tcp.ack
+                        conn["send_unacked"] = filter(lambda (s, p): s < p_tcp.ack, conn["send_unacked"])
                     print "ACK"
+                else:
+                    print "unsplit ACK"
 
 
             if p_tcp.flags & RST:
@@ -229,5 +254,8 @@ def make_sandwich(side):
     return _sandwich
 
 if __name__ == "__main__":
-    eth = ethernet.Ethernet(make_sandwich("A"), make_sandwich("B"))
+    addr = "18.238.0.97"
+    print "Capturing traffic to:", addr
+
+    eth = ethernet.Ethernet(make_sandwich("A", addr), make_sandwich("B", addr))
     eth.run()
