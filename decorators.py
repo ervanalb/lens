@@ -1,5 +1,21 @@
 import scapy.all as sc
 
+def tcp_ignore_port(port):
+    # Let traffic on a specific TCP port pass through cleanly
+    # Useful to not interfere with SSH sesions while debugging
+    def _filter_fn(fn):
+        def _fn(sent_data, write_back, write_fwd):
+            e = sc.Ether(sent_data)
+            if "TCP" in e:
+                l = e["TCP"]
+                if l.sport == port or l.dport == port:
+                    # Match: pass through
+                    return write_fwd(sent_data)
+            # No match
+            return fn(sent_data, write_back, write_fwd)
+        return _fn
+    return _filter_fn
+
 def ipv4_prudish_mode(addr, drop=True):
     # Opposite of promisc. mode
     # Filter out IP packets not routed to a particular IP

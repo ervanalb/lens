@@ -5,6 +5,7 @@ import scapy.all as sc
 from decorators import *
 from collections import namedtuple
 import enum
+from buffer import FifoBuffer
 
 FIN = 0x01
 SYN = 0x02
@@ -50,18 +51,21 @@ def conn_pkt(conn, from_recv, flags=""):
     pkt["IP"].id += 1
 
     payload = ""
+    seq = getr('seq')
     tosend = getr('tosend')
-    if tosend:
+    if tosend and "F" not in flags:
         if getr('unacked'):
             print "waiting on ack on", getr('unacked')
+            seq, payload = getr('unacked')[0]
+            flags += "P"
         else:
             payload = tosend[:1400]
             conn[prefix_r + "tosend"] = tosend[1400:]
             flags += "P"
-            getr('unacked').append((getr('seq'), payload))
+            getr('unacked').append((seq, payload))
 
     pkt_tcp = sc.TCP(sport=get("port"), dport=getr("port"),
-                     seq=getr("seq"), ack=getr("ack"),
+                     seq=seq, ack=getr("ack"),
                      window=8192,
                      #options   = [('Timestamp', (0, 0)), ('EOL', None)],
                      flags=flags
@@ -98,15 +102,13 @@ connections = {}
 
 def make_sandwich(side, ip_addr):
     @ipv4_prudish_mode(addr=ip_addr, drop=False)
+    @tcp_ignore_port(22)
     def _sandwich(sent_data, write_back, write_fwd):
         p = sc.Ether(sent_data)
         #print repr(p)
         if "TCP" in p:
             p_ip = p["IP"]
             p_tcp = p["TCP"]
-            if p_tcp.sport == 22 or p_tcp.dport == 22:
-                # SSH passthrough for debugging
-                return write_fwd(sent_data)
             conn_id = connection_id(p)
             is_receiver = False
 
@@ -122,7 +124,7 @@ def make_sandwich(side, ip_addr):
             p_fwd = None
             p_back = None
 
-                # send_ack
+            # send_ack
 
             # FIXME: the packet could have a payload *and* be SYN
 
@@ -134,7 +136,7 @@ def make_sandwich(side, ip_addr):
                         if conn["recv_ack"] == p_tcp.seq: # No effort to reconstruct out-of-order packets yet
                             size = len(p_tcp.load)
                             conn["recv_load"] += p_tcp.load
-                            conn["send_tosend"] += p_tcp.load.replace('butt', 'cloud')
+                            conn["send_tosend"] += p_tcp.load.replace('cloud', 'butt')
                             conn["recv_ack"] += size
                             #conn["recv_seq"] = p_tcp.seq
                             # Respond to new data with ACK
@@ -222,11 +224,16 @@ def make_sandwich(side, ip_addr):
                 if conn["state"] == TCPState.SPLIT:
                     # Maybe there should also be some checks or something?
                     #print 'ack, isR:', is_receiver, p_tcp.ack, conn
+                    #FIXME: only works for window size of 1
                     if is_receiver: 
-                        conn["recv_unacked"] = filter(lambda (s, p): s < p_tcp.ack, conn["recv_unacked"])
+                        print 'unacked', p_tcp.ack, conn['recv_unacked']
+                        conn["recv_unacked"] = filter(lambda (s, p): s >= p_tcp.ack, conn["recv_unacked"])
+                        conn["recv_seq"] = p_tcp.ack
                     else:
-                        conn["send_unacked"] = filter(lambda (s, p): s < p_tcp.ack, conn["send_unacked"])
-                    print "ACK"
+                        print 'unacked', p_tcp.ack, conn['send_unacked']
+                        conn["send_unacked"] = filter(lambda (s, p): s >= p_tcp.ack, conn["send_unacked"])
+                        conn["send_seq"] = p_tcp.ack
+                    print "ACK", repr(p_tcp)
                 else:
                     print "unsplit ACK"
 
@@ -234,12 +241,15 @@ def make_sandwich(side, ip_addr):
             if p_tcp.flags & RST:
                 print "RST"
                 conn = None
-                write_fwd(str(p_tcp))
+                write_fwd(str(p))
 
             if p_tcp.flags & FIN:
                 print "FIN"
-                conn = None
-                write_fwd(str(p_tcp))
+                #conn = None
+                #conn[prefix_r + "seq"] += 1
+                #conn[prefix + "ack"] += 1
+                p_fin = conn_pkt(conn, from_recv=is_receiver, flags=p_tcp.flags)
+                write_fwd(str(p))
 
             if conn:
                 connections[conn_id] = conn
