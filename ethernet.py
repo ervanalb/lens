@@ -3,101 +3,71 @@
 
 ETH_P_ALL = 3 
 
-import socket
-import select
-import subprocess
 import driver
+import errno
+import functools
+import select
+import socket
+import subprocess
+
+import tornado.ioloop
+import tornado.iostream
+import tornado.gen as gen
 
 try:
     import queue
 except:
     import Queue as queue
 
-class Ethernet(object):
+class NetLayer(object):
+    @gen.coroutine
+    def on_read(src, data):
+        yield
+
+    @gen.coroutine
+    def write(dst, data):
+        yield
+
+
+def attach(nic):
+    result = subprocess.call(["ifconfig",nic,"up","promisc"])
+    if result:
+        raise Exception("ifconfig {0} return exit code {1}".format(nic,result))
+    sock = socket.socket(socket.AF_PACKET,socket.SOCK_RAW,socket.htons(ETH_P_ALL))
+    sock.bind((nic,0))
+    sock.setblocking(0)
+    return sock
+
+def eth_callback(from_sock, from_write, to_write, from_fn, fd, events):
+    SNAPLEN=1550
+    while True:
+        try:
+            data = from_sock.recv(SNAPLEN)
+        except socket.error as e:
+            if e.args[0] not in (errno.EWOULDBLOCK, errno.EAGAIN):
+                raise
+            return
+        from_fn(data, from_write, to_write)
+
+def build_ethernet_loop(alice_fn, bob_fn, debug=False):
     alice_nic="enp0s20u3u2"
     bob_nic="enp0s20u3u3"
 
-    SNAPLEN=1518
+    alice_sock = attach(alice_nic)
+    bob_sock = attach(bob_nic)
 
-    def __init__(self, alice_fn, bob_fn, tap=True, debug=False):
-        self.alice_fn = alice_fn
-        self.bob_fn = bob_fn
-        self.debug = debug
+    def write_fn(sock):
+        def _fn(data):
+            return sock.send(data)
+        return _fn
 
-        self.a_w = queue.Queue()
-        self.b_w = queue.Queue()
+    io_loop = tornado.ioloop.IOLoop.instance()
 
-        if tap:
-            self.tap=driver.Tap()
-        else:
-            self.tap=None
+    alice_cb = functools.partial(eth_callback, alice_sock, write_fn(alice_sock), write_fn(bob_sock), alice_fn)
+    bob_cb = functools.partial(eth_callback, bob_sock, write_fn(bob_sock), write_fn(alice_sock), bob_fn)
 
-    def alice_write(self, data):
-        self.a_w.put(data)
+    io_loop.add_handler(alice_sock.fileno(), alice_cb, io_loop.READ)
+    io_loop.add_handler(bob_sock.fileno(), bob_cb, io_loop.READ)
 
-    def bob_write(self, data):
-        self.b_w.put(data)
+    return io_loop
 
-    def run(self):
-        def attach(nic):
-            result = subprocess.call(["ifconfig",nic,"up","promisc"])
-            if result:
-                raise Exception("ifconfig {0} return exit code {1}".format(nic,result))
-            sock = socket.socket(socket.AF_PACKET,socket.SOCK_RAW,socket.htons(ETH_P_ALL))
-            sock.bind((nic,0))
-            sock.setblocking(0)
-            return sock
-
-        alice_sock = attach(self.alice_nic)
-        bob_sock = attach(self.bob_nic)
-
-        if self.tap:
-            self.tap.mitm()
-
-        try:
-            while True:
-                to_w=[]
-                if not self.a_w.empty():
-                    to_w.append(alice_sock)
-                if not self.b_w.empty():
-                    to_w.append(bob_sock)
-
-                r,w,e=select.select([alice_sock,bob_sock],to_w,[alice_sock,bob_sock])
-
-                if alice_sock in r:
-                    a=alice_sock.recv(self.SNAPLEN)
-                    if self.debug:
-                        print("ALICE:",' '.join([hex(c) for c in a]))
-                    #FIXME: strip final two bytes
-                    a = a[:-2]
-                    self.alice_fn(a, self.alice_write, self.bob_write)
-                if bob_sock in r:
-                    b=bob_sock.recv(self.SNAPLEN)
-                    if self.debug:
-                        print("BOB:",' '.join([hex(c) for c in b]))
-                    #FIXME: strip final two bytes
-                    b = b[:-2]
-                    self.bob_fn(b, self.bob_write, self.alice_write)
-                if alice_sock in w:
-                    while True:
-                        try:
-                            wd = self.a_w.get_nowait()
-                            self.a_w.task_done()
-                        except queue.Empty:
-                            break
-                        l=alice_sock.send(wd)
-                if bob_sock in w:
-                    while True:
-                        try:
-                            wd = self.b_w.get_nowait()
-                            self.b_w.task_done()
-                        except queue.Empty:
-                            break
-                        l=bob_sock.send(wd)
-                if alice_sock in e:
-                    raise "ALICE EXCEPTION"
-                if alice_sock in e:
-                    raise "BOB EXCEPTION"
-        finally:
-            if self.tap:
-                self.tap.passthru()
