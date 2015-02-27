@@ -20,14 +20,62 @@ except:
     import Queue as queue
 
 class NetLayer(object):
+    routing = {
+        1: 0,
+        0: 1
+    }
     @gen.coroutine
-    def on_read(src, data):
+    def on_read(self, src, data):
         yield
 
     @gen.coroutine
-    def write(dst, data):
-        yield
+    def bubble(self, src, data, *args, **kwargs):
+        if self.next_layer is not None:
+            yield self.next_layer.on_read(src, data, *args, **kwargs)
+        elif self.prev_layer is not None:
+            yield self.prev_layer.write(self.route(src), data, *args, **kwargs)
+        else:
+            yield self.write(self.route(src), data, *args, **kwargs)
 
+    @gen.coroutine
+    def passthru(self, src, data):
+        if self.prev_layer is not None:
+            yield self.prev_layer.write(self.route(src), data)
+
+    @gen.coroutine
+    def write(self, dst, data):
+        if self.prev_layer is not None:
+            yield self.prev_layer.write(dst, data)
+
+    def route(self, key):
+        return self.routing[key]
+
+    def unroute(self, key):
+        #TODO
+        return self.routing[key]
+
+class LinkLayer(object):
+    SNAPLEN=1550
+    def __init__(self, streams, next_layer=None):
+        self.next_layer = next_layer
+        self.streams = streams
+
+    @gen.coroutine
+    def on_read(self, src):
+        while True:
+            try:
+                #FIXME
+                data = self.streams[src].socket.recv(self.SNAPLEN)
+            except socket.error as e:
+                if e.args[0] not in (errno.EWOULDBLOCK, errno.EAGAIN):
+                    raise
+                return
+            if self.next_layer:
+                yield self.next_layer.on_read(src, data[:-2])
+
+    @gen.coroutine
+    def write(self, dst, data):
+        yield self.streams[dst].write(data)
 
 def attach(nic):
     result = subprocess.call(["ifconfig",nic,"up","promisc"])
@@ -38,18 +86,18 @@ def attach(nic):
     sock.setblocking(0)
     return sock
 
-def eth_callback(from_sock, from_write, to_write, from_fn, fd, events):
-    SNAPLEN=1550
-    while True:
+
+def eth_callback(layer, src, fd, events):
+    #while True:
+    for i in range(events):
         try:
-            data = from_sock.recv(SNAPLEN)
+            layer.on_read(src)
         except socket.error as e:
             if e.args[0] not in (errno.EWOULDBLOCK, errno.EAGAIN):
                 raise
             return
-        from_fn(data, from_write, to_write)
 
-def build_ethernet_loop(alice_fn, bob_fn, debug=False):
+def build_ethernet_loop():
     alice_nic="enp0s20u3u2"
     bob_nic="enp0s20u3u3"
 
@@ -63,11 +111,16 @@ def build_ethernet_loop(alice_fn, bob_fn, debug=False):
 
     io_loop = tornado.ioloop.IOLoop.instance()
 
-    alice_cb = functools.partial(eth_callback, alice_sock, write_fn(alice_sock), write_fn(bob_sock), alice_fn)
-    bob_cb = functools.partial(eth_callback, bob_sock, write_fn(bob_sock), write_fn(alice_sock), bob_fn)
+    alice_stream = tornado.iostream.IOStream(alice_sock)
+    bob_stream = tornado.iostream.IOStream(bob_sock)
+
+    link_layer = LinkLayer([alice_stream, bob_stream])
+
+    alice_cb = functools.partial(eth_callback, link_layer, 0)
+    bob_cb = functools.partial(eth_callback, link_layer, 1)
 
     io_loop.add_handler(alice_sock.fileno(), alice_cb, io_loop.READ)
     io_loop.add_handler(bob_sock.fileno(), bob_cb, io_loop.READ)
 
-    return io_loop
+    return io_loop, link_layer
 
