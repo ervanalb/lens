@@ -26,7 +26,7 @@ class IPv4Layer(ethernet.NetLayer):
                 yield self.bubble(src, data)
             return 
         yield self.write(self.route(src), data)
-
+        
 class TCPPassthruLayer(ethernet.NetLayer):
     def __init__(self, prev_layer=None, next_layer=None, ports=None):
         self.prev_layer = prev_layer
@@ -43,20 +43,55 @@ class TCPPassthruLayer(ethernet.NetLayer):
                     return
         yield self.bubble(src, data)
 
-class CloudToButtLayer(ethernet.NetLayer):
-    def __init__(self, prev_layer=None, next_layer=None):
-        self.prev_layer = prev_layer
-        self.next_layer = next_layer
+class LineBufferLayer(tcp.TCPApplicationLayer):
+    # Buffers incoming data line-by-line
+    def __init__(self, *args, **kwargs):
+        super(LineBufferLayer, self).__init__(*args, **kwargs)
+        self.buff = ""
+        
+    @gen.coroutine
+    def on_read(self, src, data):
+        if data is None:
+            buff = self.buff
+            self.buff = ""
+            yield self.bubble(src, buff)
+        else:
+            self.buff += data
+            if '\n' in self.buff:
+                lines = self.buff.split('\n')
+                print 'linebuffer: %d newlines' % (len(lines) -1)
+                self.buff = lines[-1]
+                for line in lines[:-1]:
+                    yield self.bubble(src, line + "\n")
+            else:
+                print 'linebuffer: no newline'
 
     @gen.coroutine
-    def on_read(self, src, data, *args, **kwargs):
-        butt_data = data.replace("cloud", "butt")
-        yield self.bubble(src, butt_data, *args, **kwargs)
+    def on_close(self, src):
+        if self.buff:
+            yield self.bubble(src, self.buff)
+        yield super(LineBufferLayer, self).on_close(src)
 
-def connect(layer_list):
-    for a, b in zip(layer_list, layer_list[1:]):
-        a.next_layer = b
-        b.prev_layer = a
+class CloudToButtLayer(tcp.TCPApplicationLayer):
+    @gen.coroutine
+    def on_read(self, src, data):
+        print 'cloud2butt: replacing in %d bytes' % len(data)
+        butt_data = data.replace("cloud", "butt")
+        yield self.bubble(src, butt_data)
+
+def connect(prev, layer_list, **global_kwargs):
+    layers = []
+    for (const, args, kwargs) in layer_list:
+        kwargs.update(global_kwargs)
+        new = const(*args, prev_layer=prev, **kwargs)
+        layers.append(new)
+        prev.next_layer = new
+        prev = new
+    return layers
+
+# Simple syntatic sugar
+def l(constructor, *args, **kwargs):
+    return (constructor, args, kwargs)
 
 if __name__ == "__main__":
     addr = "18.238.0.97"
@@ -67,13 +102,24 @@ if __name__ == "__main__":
     loop, link_layer = ethernet.build_ethernet_loop()
     tap.mitm()
 
-    connect([
-        link_layer,
-        IPv4Layer(addr_filter=[addr]),
-        TCPPassthruLayer(ports=[22]),
-        tcp.TCPLayer(),
-        CloudToButtLayer()
+    stateless_layers = connect(
+        link_layer, [
+        l(IPv4Layer, addr_filter=[addr]),
+        l(TCPPassthruLayer, ports=[22]),
+        l(tcp.TCPLayer),
     ])
+
+    def stateful_layers(conn, prev_layer):
+        layers = connect(
+            prev_layer, [
+            l(LineBufferLayer),
+            l(CloudToButtLayer), 
+        ], conn=conn)
+        # Fix prev_layer.next_layer munging
+        prev_layer.next_layer = stateful_layers 
+        return layers[0]
+
+    stateless_layers[-1].next_layer = stateful_layers
 
     try:
         loop.start()

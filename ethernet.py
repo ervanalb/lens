@@ -24,6 +24,10 @@ class NetLayer(object):
         1: 0,
         0: 1
     }
+    def __init__(self, prev_layer=None, next_layer=None):
+        self.prev_layer = prev_layer
+        self.next_layer = next_layer
+
     @gen.coroutine
     def on_read(self, src, data):
         yield
