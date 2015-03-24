@@ -59,12 +59,13 @@ class LineBufferLayer(tcp.TCPApplicationLayer):
             self.buff += data
             if '\n' in self.buff:
                 lines = self.buff.split('\n')
-                print 'linebuffer: %d newlines' % (len(lines) -1)
+                #print 'linebuffer: %d newlines' % (len(lines) -1)
                 self.buff = lines[-1]
                 for line in lines[:-1]:
                     yield self.bubble(src, line + "\n")
             else:
-                print 'linebuffer: no newline'
+                #print 'linebuffer: no newline'
+                pass
 
     @gen.coroutine
     def on_close(self, src):
@@ -75,8 +76,8 @@ class LineBufferLayer(tcp.TCPApplicationLayer):
 class CloudToButtLayer(tcp.TCPApplicationLayer):
     @gen.coroutine
     def on_read(self, src, data):
-        print 'cloud2butt: replacing in %d bytes' % len(data)
-        butt_data = data.replace("cloud", "butt")
+        #print 'cloud2butt: replacing in %d bytes' % len(data)
+        butt_data = data.replace("nginx", "my butt")
         yield self.bubble(src, butt_data)
 
 def connect(prev, layer_list, **global_kwargs):

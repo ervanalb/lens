@@ -19,6 +19,13 @@ TCP_FLAGS = {
     "U": dpkt.tcp.TH_URG
 }
 
+hosts = {
+    "18.238.0.97": "H",
+    "18.111.96.68": "Z",
+    "18.238.7.58": "D"
+}
+
+
 def tcp_dump_flags(flagstr):
     out = 0
     for f in flagstr:
@@ -44,6 +51,10 @@ def tcp_dump_opts(optlist):
 
 def tcp_has_payload(tcp_pkt):
     return bool(tcp_pkt.data)
+
+def parse_ip(tcp_ip):
+    # Parse 4-byte IP into readable string
+    return ".".join([str(ord(x)) for x in tcp_ip])
 
 # Connection
 def connection_id(pkt):
@@ -161,7 +172,7 @@ class TCPLayer(NetLayer):
             sender, receiver = src, dst
 
         # For now, assume that connections are symmetric
-        conn = self.connections.get(conn_id, {src: {}, dst: {}})
+        conn = self.connections.get(conn_id, {src: {}, dst: {}, "count": len(self.connections)})
         self.connections[conn_id] = conn
 
         src_conn = conn[src]
@@ -176,28 +187,47 @@ class TCPLayer(NetLayer):
         host_ip = pkt_ip.src
         dest_ip = pkt_ip.dst
 
-        passthru = True
+        passthru = False
 
-        print conn_id, '>>' if src else '<<', tcp_read_flags(pkt_tcp.flags), src_conn.get('state'), dst_conn.get('state')
-        print src_conn.get('seq'), src_conn.get('ack'), pkt_tcp.seq, pkt_tcp.ack
+        #print conn_id, '>>' if src else '<<', tcp_read_flags(pkt_tcp.flags), src_conn.get('state'), dst_conn.get('state')
+        #print src_conn.get('seq'), src_conn.get('ack'), pkt_tcp.seq, pkt_tcp.ack
 
         # Update timestamps
         if dpkt.tcp.TCP_OPT_TIMESTAMP in tcp_opts_dict:
             ts_val, ts_ecr = struct.unpack('!II', tcp_opts_dict[dpkt.tcp.TCP_OPT_TIMESTAMP])
-            print 'updating TSVAL', dst_conn.get('state'), ts_val, dst
-            if dst_conn.get('state') not in {"LAST-ACK", "CLOSED"}:
-                print 'updating TSVAL actually', dst_conn.get('state'), ts_val, dst
-                dst_conn['last_ts_val'] = dst_conn.get('ts_val', 0)
-                dst_conn['ts_val'] = ts_val
+            #print 'updating TSVAL', dst_conn.get('state'), ts_val, dst
+            dst_conn['last_ts_val'] = dst_conn.get('ts_val', 0)
+            dst_conn['ts_val'] = ts_val
             src_conn['ts_ecr'] = ts_val
             t = self.timers[host_ip].get_time()
             #print src, ts_val, t, '%', (ts_val - t) / (ts_val + 0.1) * 100
             self.timers[host_ip].put_sample(ts_val)
+        else:
+            ts_val, ts_ecr = None, None
+
+        print "TCP {}{} {} {:.3f} {}:{:<5}->{}:{:<5} {:<4} seq={:<3} ({:<10}) ack={:<3} ({:<10}) data=[{:<4}]{:8} tsval={} tsecr={}".format(
+                "AB"[src], "->",
+                conn["count"],
+                time.clock(), 
+                hosts.get(parse_ip(host_ip), "?"),
+                pkt_tcp.sport,
+                hosts.get(parse_ip(dest_ip), "?"),
+                pkt_tcp.dport,
+                tcp_read_flags(pkt_tcp.flags),
+                pkt_tcp.seq - dst_conn['seq_start'] if 'seq_start' in dst_conn else '-',
+                pkt_tcp.seq,
+                pkt_tcp.ack - src_conn['seq_start'] if pkt_tcp.flags & dpkt.tcp.TH_ACK and 'seq_start' in src_conn else '-',
+                pkt_tcp.ack if pkt_tcp.flags & dpkt.tcp.TH_ACK else '-',
+                len(pkt_tcp.data),
+                pkt_tcp.data.replace("\n", "\\n")[:8] if pkt_tcp.data else None,
+                ts_val,
+                ts_ecr
+            )
 
         if tcp_has_payload(pkt_tcp):
             if src_conn.get("state") == "ESTABLISHED":
                 data = pkt_tcp.data
-                print "data", src, pkt_tcp["seq"], pkt_tcp["ack"], len(data), data[:8]
+                #print "data", src, pkt_tcp["seq"], pkt_tcp["ack"], len(data), data[:16]
                 src_conn["in_buffer"] += data
                 src_conn["ack"] += len(data)
 
@@ -208,7 +238,6 @@ class TCPLayer(NetLayer):
                 #yield self.write_packet(dst, dst_conn, flags="A")
                 #yield self.bubble(src, data, conn_id=conn_id)
                 yield next_layer.on_read(src, data)
-                passthru = False
 
 
         if pkt_tcp.flags & dpkt.tcp.TH_SYN:
@@ -222,6 +251,7 @@ class TCPLayer(NetLayer):
             dst_conn["ip_ttl"] = pkt_ip.ttl
             dst_conn["sport"] = pkt_tcp.sport
             dst_conn["dport"] = pkt_tcp.dport
+            dst_conn["win"] = pkt_tcp.win
 
             dst_conn["out_buffer"] = ""
             dst_conn["in_buffer"] = ""
@@ -229,11 +259,13 @@ class TCPLayer(NetLayer):
 
             #TODO
             dst_conn["seq"] = pkt_tcp.seq
+            dst_conn["seq_start"] = pkt_tcp.seq
             src_conn["ack"] = pkt_tcp.seq + 1
+            src_conn["ack_start"] = pkt_tcp.seq
             #dst_conn["ack"] = pkt_tcp.ack
             
 
-            print 'syn', tcp_read_flags(pkt_tcp.flags),dst_conn.get('state'), src_conn.get('state')
+            #print 'syn', tcp_read_flags(pkt_tcp.flags),dst_conn.get('state'), src_conn.get('state')
 
 
 # A           | D_sender    | D_reciever  | B
@@ -262,7 +294,8 @@ class TCPLayer(NetLayer):
                 src_conn["state"] = "ESTABLISHED"
                 print "established", src
                 # Reply with ACK and forward SYNACK 
-                yield self.write_packet(src, src_conn, flags="A")
+                # The ACK reply gets handled later on 
+                #yield self.write_packet(src, src_conn, flags="A")
                 
                 # Forward SYNACK
                 dst_conn["state"] = "SYN-RECIEVED"
@@ -273,12 +306,11 @@ class TCPLayer(NetLayer):
                 # Forward SYN
                 #yield self.prev_layer.write(dst, data)
                 yield self.write_packet(dst, dst_conn, flags="S")
-            passthru = False
 
         if pkt_tcp.flags & dpkt.tcp.TH_FIN:
-            print "FIN", sender_conn.get('state'), receiver_conn.get('state')
-            src_conn["ack"] += 1 # ack or seq? XXX
+            print "FIN", sender_conn.get('state'), receiver_conn.get('state'), src_conn.get('state')
             if src_conn.get("state") == "ESTABLISHED":
+                src_conn["ack"] += 1 # ack or seq? XXX
                 src_conn["state"] = "LAST-ACK"
                 if dst_conn.get("state") == "ESTABLISHED":
                     dst_conn["state"] = "FIN-WAIT-1"
@@ -290,12 +322,12 @@ class TCPLayer(NetLayer):
                 yield self.write_packet(src, src_conn, flags="FA")
                 src_conn["seq"] += 1 # ack or seq? XXX
             elif src_conn.get("state") == "FIN-WAIT-1": #TODO: this isn't used at all
+                src_conn["ack"] += 1 # ack or seq? XXX
                 #src_conn["seq"] += 1 # ack or seq? XXX
                 src_conn["state"] = "CLOSED"
                 #src_conn["state"] = "LAST-ACK"
                 # Reply with ACK 
-                src_conn["ts_val"] = 1 #src_conn.get("last_ts_val", 0)
-                #yield self.write_packet(src, src_conn, flags="A")
+                yield self.write_packet(src, src_conn, flags="A")
 
                 # Forward FINACK
                 #dst_conn["seq"] += 1 # ack or seq? XXX
@@ -311,7 +343,6 @@ class TCPLayer(NetLayer):
 
             if src_conn.get("state") == "ESTABLISHED":
                 src_conn["seq"] = max(src_conn.get('seq'), pkt_tcp.ack) #XXX?
-                passthru = False
                 # We don't need to ACK the ACK unless it's a SYNACK
                 if pkt_tcp.flags & dpkt.tcp.TH_SYN:
                     yield self.write_packet(src, src_conn, flags="A")
@@ -352,7 +383,8 @@ class TCPLayer(NetLayer):
         #print src, repr(pkt)
         #print repr(str(pkt))
 
-        if passthru:
+        if passthru or "state" not in dst_conn:
+            print "passthru"
             yield self.passthru(src, data)
 
     @gen.coroutine
@@ -369,7 +401,6 @@ class TCPLayer(NetLayer):
 
         bflags = tcp_dump_flags(flags)
         ts_val = struct.pack("!I", conn.get("ts_val", 0))
-        ts_val = struct.pack("!I", 1)
         ts_ecr = struct.pack("!I", conn.get("ts_ecr", 0))
         tcp_opts = tcp_dump_opts([
             (dpkt.tcp.TCP_OPT_TIMESTAMP, ts_val + ts_ecr)
@@ -391,6 +422,7 @@ class TCPLayer(NetLayer):
             seq=seq,
             ack=ack,
             flags=bflags,
+            win=conn.get("win", dpkt.tcp.TCP_WIN_MAX),
         )
         tcp_pkt.opts = tcp_opts
         tcp_pkt.off += len(tcp_opts) / 4
@@ -404,7 +436,24 @@ class TCPLayer(NetLayer):
 
         data = str(pkt)
         if self.prev_layer is not None:
-            print ">", dst, seq, ack, flags, ((len(payload), payload[:8]) if payload else None)
+            print "TCP {}{}   {:.3f} {}:{:<5}->{}:{:<5} {:<4} seq={:<3} ({:<10}) ack={:<3} ({:<10}) data=[{:<4}]{:8} tsval={} tsecr={}".format(
+                    "->", "AB"[dst],
+                    time.clock(), 
+                    hosts.get(parse_ip(ip_pkt.src), "?"),
+                    tcp_pkt.sport,
+                    hosts.get(parse_ip(ip_pkt.dst), "?"),
+                    tcp_pkt.dport,
+                    tcp_read_flags(tcp_pkt.flags),
+                    tcp_pkt.seq - conn['seq_start'] if 'seq_start' in conn else '-',
+                    tcp_pkt.seq,
+                    tcp_pkt.ack - conn['ack_start'] if tcp_pkt.flags & dpkt.tcp.TH_ACK and 'ack_start' in conn else '-',
+                    tcp_pkt.ack if tcp_pkt.flags & dpkt.tcp.TH_ACK else '-',
+                    len(tcp_pkt.data),
+                    tcp_pkt.data.replace("\n", "\\n")[:8] if tcp_pkt.data else None,
+                    conn.get('ts_val', 0),
+                    conn.get('ts_ecr', 0)
+                )
+            #print ">", dst, seq, ack, flags, ((len(payload), payload[:8]) if payload else None)
             yield self.prev_layer.write(dst, data)
 
     @gen.coroutine
