@@ -52,16 +52,12 @@ def tcp_dump_opts(optlist):
 def tcp_has_payload(tcp_pkt):
     return bool(tcp_pkt.data)
 
-def parse_ip(tcp_ip):
-    # Parse 4-byte IP into readable string
-    return ".".join([str(ord(x)) for x in tcp_ip])
-
 # Connection
-def connection_id(pkt):
+def connection_id(pkt, header):
     # Generate a tuple representing the stream 
     # (source host addr, source port, dest addr, dest port)
-    return ((pkt.data.src, pkt.data.data.sport),
-            (pkt.data.dst, pkt.data.data.dport))
+    return ((header["ip_src"], pkt.sport),
+            (header["ip_dst"], pkt.dport))
 
 class TimestampEstimator(object):
     def __init__(self):
@@ -122,6 +118,31 @@ class TimestampEstimator(object):
         return int((local_time - l) * self.rate + s) & 0xFFFFFFFF
         #return int(local_time * self.rate + self.offset)
 
+class TCPPassthruLayer(NetLayer):
+    """ Simple TCP layer which will pass packets on certain TCP ports through """
+    IN_TYPES = {"IP"}
+    OUT_TYPE = "IP"
+    def __init__(self, prev_layer=None, next_layer=None, ports=None):
+        self.prev_layer = prev_layer
+        self.next_layer = next_layer
+        self.ports = ports
+
+    @gen.coroutine
+    def on_read(self, src, payload, header):
+        if header.get("eth_type") != dpkt.ethernet.ETH_TYPE_IP or header.get("ip_p") != dpkt.ip.IP_PROTO_TCP:
+            yield self.passthru(src, payload, header)
+            return 
+
+        #try:
+        #    pkt = dpkt.tcp.TCP(payload)
+        #except dpkt.NeedData:
+        #    return
+        pkt = payload
+
+        if pkt.sport in self.ports or pkt.dport in self.ports:
+            yield self.passthru(src, payload, header)
+        else:
+            yield self.bubble(src, payload, header)
 
 # Half Connection attributes
 # From the perspective of sending packets back through the link
@@ -137,33 +158,39 @@ class TimestampEstimator(object):
 # data to send
 
 class TCPLayer(NetLayer):
-    def __init__(self, next_layer=None, prev_layer=None):
+    IN_TYPES = {"IP"}
+    OUT_TYPE = "TCP"
+    def __init__(self, next_layer=None, prev_layer=None, debug=True):
         self.next_layer = next_layer # next_layer is a *factory*
         self.prev_layer = prev_layer
         self.connections = {}
+        self.debug = debug
         self.timers = collections.defaultdict(TimestampEstimator)
 
     @gen.coroutine
-    def on_read(self, src, data):
+    def on_read(self, src, payload, header):
         if self.prev_layer is None or self.next_layer is None:
-            yield self.passthru(src, data)
+            yield self.passthru(src, payload, header)
             return 
 
-        pkt = dpkt.ethernet.Ethernet(data)
 
-        if pkt.type != dpkt.ethernet.ETH_TYPE_IP or pkt.data.p != dpkt.ip.IP_PROTO_TCP:
-            yield self.passthru(src, data)
+        if header.get("eth_type") != dpkt.ethernet.ETH_TYPE_IP or header.get("ip_p") != dpkt.ip.IP_PROTO_TCP:
+            yield self.passthru(src, payload, header)
             return 
+
+        #pkt_tcp = dpkt.tcp.TCP(data)
+        pkt_tcp = payload
 
         #TODO: validate checksums / packet
 
-        pkt_ip = pkt.data
-        pkt_tcp = pkt.data.data
+        #pkt_ip = pkt.data
+        #pkt_tcp = pkt.data.data
         tcp_opts = dpkt.tcp.parse_opts(pkt_tcp.opts)
         tcp_opts_dict = dict(tcp_opts)
 
         dst = self.route(src)
-        conn_id = connection_id(pkt)
+        #conn_id = connection_id(pkt)
+        conn_id = connection_id(pkt_tcp, header)
         if conn_id[::-1] in self.connections: # is_receiver
             # The connection was initiated by the dst
             conn_id = conn_id[::-1]
@@ -184,8 +211,8 @@ class TCPLayer(NetLayer):
         next_layer = conn["next_layer"]
         commit = False
 
-        host_ip = pkt_ip.src
-        dest_ip = pkt_ip.dst
+        host_ip = header["ip_src"]
+        dest_ip = header["ip_dst"]
 
         passthru = False
 
@@ -205,24 +232,25 @@ class TCPLayer(NetLayer):
         else:
             ts_val, ts_ecr = None, None
 
-        print "TCP {}{} {} {:.3f} {}:{:<5}->{}:{:<5} {:<4} seq={:<3} ({:<10}) ack={:<3} ({:<10}) data=[{:<4}]{:8} tsval={} tsecr={}".format(
-                "AB"[src], "->",
-                conn["count"],
-                time.clock(), 
-                hosts.get(parse_ip(host_ip), "?"),
-                pkt_tcp.sport,
-                hosts.get(parse_ip(dest_ip), "?"),
-                pkt_tcp.dport,
-                tcp_read_flags(pkt_tcp.flags),
-                pkt_tcp.seq - dst_conn['seq_start'] if 'seq_start' in dst_conn else '-',
-                pkt_tcp.seq,
-                pkt_tcp.ack - src_conn['seq_start'] if pkt_tcp.flags & dpkt.tcp.TH_ACK and 'seq_start' in src_conn else '-',
-                pkt_tcp.ack if pkt_tcp.flags & dpkt.tcp.TH_ACK else '-',
-                len(pkt_tcp.data),
-                pkt_tcp.data.replace("\n", "\\n")[:8] if pkt_tcp.data else None,
-                ts_val,
-                ts_ecr
-            )
+        if self.debug:
+            print "TCP {}{} {} {:.3f} {}:{:<5}->{}:{:<5} {:<4} seq={:<3} ({:<10}) ack={:<3} ({:<10}) data=[{:<4}]{:8} tsval={} tsecr={}".format(
+                    "AB"[src], "->",
+                    conn["count"],
+                    time.clock(), 
+                    hosts.get(host_ip, "?"),
+                    pkt_tcp.sport,
+                    hosts.get(dest_ip, "?"),
+                    pkt_tcp.dport,
+                    tcp_read_flags(pkt_tcp.flags),
+                    pkt_tcp.seq - dst_conn['seq_start'] if 'seq_start' in dst_conn else '-',
+                    pkt_tcp.seq,
+                    pkt_tcp.ack - src_conn['seq_start'] if pkt_tcp.flags & dpkt.tcp.TH_ACK and 'seq_start' in src_conn else '-',
+                    pkt_tcp.ack if pkt_tcp.flags & dpkt.tcp.TH_ACK else '-',
+                    len(pkt_tcp.data),
+                    pkt_tcp.data.replace("\n", "\\n")[:8] if pkt_tcp.data else None,
+                    ts_val,
+                    ts_ecr
+                )
 
         if tcp_has_payload(pkt_tcp):
             if src_conn.get("state") == "ESTABLISHED":
@@ -244,11 +272,9 @@ class TCPLayer(NetLayer):
             # Assume we aren't redirecting the traffic, just modifying the contents
             commit = True
 
-            dst_conn["eth_src"] = pkt.src
-            dst_conn["eth_dst"] = pkt.dst
-            dst_conn["ip_src"] = pkt_ip.src
-            dst_conn["ip_dst"] = pkt_ip.dst
-            dst_conn["ip_ttl"] = pkt_ip.ttl
+            dst_conn["ip_header"] = header
+            dst_conn["ip_src"] = host_ip
+            dst_conn["ip_dst"] = dest_ip
             dst_conn["sport"] = pkt_tcp.sport
             dst_conn["dport"] = pkt_tcp.dport
             dst_conn["win"] = pkt_tcp.win
@@ -385,10 +411,11 @@ class TCPLayer(NetLayer):
 
         if passthru or "state" not in dst_conn:
             print "passthru"
-            yield self.passthru(src, data)
+            yield self.passthru(src, payload, header)
 
     @gen.coroutine
     def write_packet(self, dst, conn, flags="A"):
+        header = conn["ip_header"]
         payload = None
         seq = conn["seq"]
         ack = conn.get("ack", 0)
@@ -405,17 +432,6 @@ class TCPLayer(NetLayer):
         tcp_opts = tcp_dump_opts([
             (dpkt.tcp.TCP_OPT_TIMESTAMP, ts_val + ts_ecr)
         ])
-        pkt = dpkt.ethernet.Ethernet(
-            dst=conn["eth_dst"],
-            src=conn["eth_src"],
-            type=dpkt.ethernet.ETH_TYPE_IP
-        )
-        ip_pkt = dpkt.ip.IP(
-            id=0,
-            dst=conn["ip_dst"],
-            src=conn["ip_src"],
-            p=dpkt.ip.IP_PROTO_TCP
-        )
         tcp_pkt = dpkt.tcp.TCP(
             sport=conn["sport"],
             dport=conn["dport"],
@@ -429,19 +445,13 @@ class TCPLayer(NetLayer):
         if payload is not None:
             tcp_pkt.data = payload
 
-        ip_pkt.data = tcp_pkt
-        ip_pkt.len += len(tcp_pkt)
-
-        pkt.data = ip_pkt
-
-        data = str(pkt)
-        if self.prev_layer is not None:
+        if self.debug:
             print "TCP {}{}   {:.3f} {}:{:<5}->{}:{:<5} {:<4} seq={:<3} ({:<10}) ack={:<3} ({:<10}) data=[{:<4}]{:8} tsval={} tsecr={}".format(
                     "->", "AB"[dst],
                     time.clock(), 
-                    hosts.get(parse_ip(ip_pkt.src), "?"),
+                    hosts.get(header["ip_src"], "?"),
                     tcp_pkt.sport,
-                    hosts.get(parse_ip(ip_pkt.dst), "?"),
+                    hosts.get(header["ip_dst"], "?"),
                     tcp_pkt.dport,
                     tcp_read_flags(tcp_pkt.flags),
                     tcp_pkt.seq - conn['seq_start'] if 'seq_start' in conn else '-',
@@ -453,8 +463,8 @@ class TCPLayer(NetLayer):
                     conn.get('ts_val', 0),
                     conn.get('ts_ecr', 0)
                 )
-            #print ">", dst, seq, ack, flags, ((len(payload), payload[:8]) if payload else None)
-            yield self.prev_layer.write(dst, data)
+        # Don't stringify packet so the IP layer can calculate the checksum for us
+        yield self.prev_layer.write(dst, tcp_pkt, header)
 
     @gen.coroutine
     def write_conn(self, dst, data, conn):
@@ -463,40 +473,40 @@ class TCPLayer(NetLayer):
         yield self.write_packet(dst, dst_conn, flags="A")
 
     @gen.coroutine
-    def write(self, dst, data):
-        print "ERROR: do not call TCP.write!"
-        raise NotImplementedError
+    def write(self, dst, data, header):
+        yield self.write_conn(dst, data, header)
         
 class TCPApplicationLayer(NetLayer):
+    IN_TYPES = {"TCP"}
+    OUT_TYPE = "TCP App"
     def __init__(self, conn, prev_layer, next_layer=None):
         self.conn = conn
         self.prev_layer = prev_layer
         self.next_layer = next_layer
 
     @gen.coroutine
-    def bubble(self, src, data):
+    def bubble(self, src, data, *args):
         if self.next_layer is not None:
-            yield self.next_layer.on_read(src, data)
+            yield self.next_layer.on_read(src, data, *args)
         else:
             yield self.prev_layer.write_conn(self.route(src), data, self.conn)
         
     @gen.coroutine
-    def on_read(self, src, data):
-        yield self.bubble(src, data)
+    def on_read(self, src, data, *args):
+        yield self.bubble(src, data, *args)
 
     @gen.coroutine
-    def on_close(self, src):
+    def on_close(self, src, *args):
         if self.next_layer is not None:
-            yield self.next_layer.on_close(src)
+            yield self.next_layer.on_close(src, *args)
 
     @gen.coroutine
-    def write_conn(self, dst, data, conn):
+    def write_conn(self, dst, data, conn, *args):
         # `conn` is actually just ignored, which is odd #FIXME
-        yield self.prev_layer.write_conn(dst, data, self.conn)
+        yield self.prev_layer.write_conn(dst, data, self.conn, *args)
 
     @gen.coroutine
-    def write(self, dst, data):
-        print "ERROR: do not call TCPAppLayer.write!"
-        raise NotImplementedError
+    def write(self, dst, data, *args):
+        yield self.prev_layer.write(dst, data, self.conn, *args)
 
 

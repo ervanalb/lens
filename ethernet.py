@@ -3,6 +3,7 @@
 
 ETH_P_ALL = 3 
 
+import dpkt
 import driver
 import errno
 import functools
@@ -24,32 +25,36 @@ class NetLayer(object):
         1: 0,
         0: 1
     }
+    IN_TYPES = set()
+    OUT_TYPE = None
+
     def __init__(self, prev_layer=None, next_layer=None):
         self.prev_layer = prev_layer
         self.next_layer = next_layer
 
     @gen.coroutine
-    def on_read(self, src, data):
-        yield
+    def on_read(self, src, payload, header=None):
+        yield self.bubble(*args **kwargs)
 
     @gen.coroutine
-    def bubble(self, src, data, *args, **kwargs):
+    def bubble(self, src, *args, **kwargs):
         if self.next_layer is not None:
-            yield self.next_layer.on_read(src, data, *args, **kwargs)
+            yield self.next_layer.on_read(src, *args, **kwargs)
         elif self.prev_layer is not None:
-            yield self.prev_layer.write(self.route(src), data, *args, **kwargs)
+            yield self.prev_layer.write(self.route(src), *args, **kwargs)
         else:
-            yield self.write(self.route(src), data, *args, **kwargs)
+            yield self.write(self.route(src), *args, **kwargs)
 
     @gen.coroutine
-    def passthru(self, src, data):
+    def passthru(self, src, *args, **kwargs):
         if self.prev_layer is not None:
-            yield self.prev_layer.write(self.route(src), data)
+            yield self.prev_layer.write(self.route(src), *args, **kwargs)
 
     @gen.coroutine
-    def write(self, dst, data):
+    def write(self, dst, payload, header=None):
+        # Override me
         if self.prev_layer is not None:
-            yield self.prev_layer.write(dst, data)
+            yield self.prev_layer.write(dst, payload, header)
 
     def route(self, key):
         return self.routing[key]
@@ -60,6 +65,8 @@ class NetLayer(object):
 
 class LinkLayer(object):
     SNAPLEN=1550
+    IN_TYPES = set()
+    OUT_TYPE = "Raw"
     def __init__(self, streams, next_layer=None):
         self.next_layer = next_layer
         self.streams = streams
@@ -80,6 +87,40 @@ class LinkLayer(object):
     @gen.coroutine
     def write(self, dst, data):
         yield self.streams[dst].write(data)
+
+
+class EthernetLayer(NetLayer):
+    IN_TYPES = {"Raw"}
+    OUT_TYPE = "Ethernet"
+
+    @staticmethod
+    def pretty_mac(mac):
+        return ":".join(["{:02x}".format(ord(x)) for x in mac])
+    @staticmethod
+    def wire_mac(mac):
+        return "".join([chr(int(x, 16)) for x in mac.split(":")])
+
+    @gen.coroutine
+    def on_read(self, src, data):
+        try:
+            pkt = dpkt.ethernet.Ethernet(data)
+        except dpkt.NeedData:
+            yield self.passthru(src, data)
+        header = {
+            "eth_dst": self.pretty_mac(pkt.dst),
+            "eth_src": self.pretty_mac(pkt.src),
+            "eth_type": pkt.type,
+        }
+        yield self.bubble(src, pkt.data, header)
+
+    @gen.coroutine
+    def write(self, dst, payload, header):
+        pkt = dpkt.ethernet.Ethernet(
+                dst=self.wire_mac(header["eth_dst"]),
+                src=self.wire_mac(header["eth_src"]),
+                type=header["eth_type"],
+                data=payload)
+        yield self.prev_layer.write(dst, str(pkt))
 
 def attach(nic):
     result = subprocess.call(["ifconfig",nic,"up","promisc"])
@@ -102,8 +143,8 @@ def eth_callback(layer, src, fd, events):
             return
 
 def build_ethernet_loop():
-    alice_nic="enp0s20u3u2"
-    bob_nic="enp0s20u3u3"
+    alice_nic="enp0s20u3u1"
+    bob_nic="enp0s20u3u2"
 
     alice_sock = attach(alice_nic)
     bob_sock = attach(bob_nic)

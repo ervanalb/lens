@@ -2,59 +2,27 @@
 import dpkt
 import driver
 import enum
+
 import ethernet 
+import ip
 import tcp
 
 import tornado.gen as gen
 
-class IPv4Layer(ethernet.NetLayer):
-    @staticmethod
-    def pretty_ip(ip):
-        return ".".join([str(ord(x)) for x in ip])
-
-    def __init__(self, prev_layer=None, next_layer=None, addr_filter=None):
-        self.prev_layer = prev_layer
-        self.next_layer = next_layer
-        self.addr_filter = addr_filter
-
-    @gen.coroutine
-    def on_read(self, src, data):
-        pkt = dpkt.ethernet.Ethernet(data)
-        if pkt.type == dpkt.ethernet.ETH_TYPE_IP:
-            if self.addr_filter is None or self.pretty_ip(pkt.data.src) in self.addr_filter or self.pretty_ip(pkt.data.dst) in self.addr_filter:
-                #print src, repr(pkt)
-                yield self.bubble(src, data)
-            return 
-        yield self.write(self.route(src), data)
-        
-class TCPPassthruLayer(ethernet.NetLayer):
-    def __init__(self, prev_layer=None, next_layer=None, ports=None):
-        self.prev_layer = prev_layer
-        self.next_layer = next_layer
-        self.ports = ports
-
-    @gen.coroutine
-    def on_read(self, src, data):
-        pkt = dpkt.ethernet.Ethernet(data)
-        if pkt.type == dpkt.ethernet.ETH_TYPE_IP:
-            if pkt.data.p == dpkt.ip.IP_PROTO_TCP:
-                if pkt.data.data.sport in self.ports or pkt.data.data.dport in self.ports:
-                    yield self.write(self.route(src), data)
-                    return
-        yield self.bubble(src, data)
-
 class LineBufferLayer(tcp.TCPApplicationLayer):
+    IN_TYPES = {"TCP App"}
+    OUT_TYPE = "TCP App"
     # Buffers incoming data line-by-line
     def __init__(self, *args, **kwargs):
         super(LineBufferLayer, self).__init__(*args, **kwargs)
         self.buff = ""
         
     @gen.coroutine
-    def on_read(self, src, data):
+    def on_read(self, src, data, *args):
         if data is None:
             buff = self.buff
             self.buff = ""
-            yield self.bubble(src, buff)
+            yield self.bubble(src, buff, *args)
         else:
             self.buff += data
             if '\n' in self.buff:
@@ -62,7 +30,7 @@ class LineBufferLayer(tcp.TCPApplicationLayer):
                 #print 'linebuffer: %d newlines' % (len(lines) -1)
                 self.buff = lines[-1]
                 for line in lines[:-1]:
-                    yield self.bubble(src, line + "\n")
+                    yield self.bubble(src, line + "\n", *args)
             else:
                 #print 'linebuffer: no newline'
                 pass
@@ -74,11 +42,13 @@ class LineBufferLayer(tcp.TCPApplicationLayer):
         yield super(LineBufferLayer, self).on_close(src)
 
 class CloudToButtLayer(tcp.TCPApplicationLayer):
+    IN_TYPES = {"TCP App"}
+    OUT_TYPE = "TCP App"
     @gen.coroutine
-    def on_read(self, src, data):
+    def on_read(self, src, data, *args):
         #print 'cloud2butt: replacing in %d bytes' % len(data)
         butt_data = data.replace("nginx", "my butt")
-        yield self.bubble(src, butt_data)
+        yield self.bubble(src, butt_data, *args)
 
 def connect(prev, layer_list, **global_kwargs):
     layers = []
@@ -86,6 +56,8 @@ def connect(prev, layer_list, **global_kwargs):
         kwargs.update(global_kwargs)
         new = const(*args, prev_layer=prev, **kwargs)
         layers.append(new)
+        if prev.OUT_TYPE not in new.IN_TYPES:
+            print "Warning: connecting incompatible {} -> {}".format(repr(prev), repr(new))
         prev.next_layer = new
         prev = new
     return layers
@@ -105,9 +77,10 @@ if __name__ == "__main__":
 
     stateless_layers = connect(
         link_layer, [
-        l(IPv4Layer, addr_filter=[addr]),
-        l(TCPPassthruLayer, ports=[22]),
-        l(tcp.TCPLayer),
+        l(ethernet.EthernetLayer),
+        l(ip.IPv4Layer, addr_filter=[addr]),
+        l(tcp.TCPPassthruLayer, ports=[22]),
+        l(tcp.TCPLayer, debug=True),
     ])
 
     def stateful_layers(conn, prev_layer):

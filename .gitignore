@@ -1,3 +1,7 @@
 hardware/*.bak
 hardware/*.kicad_pcb-bak
 hardware/gerber
+*.pyc
+*.swo
+*.swp
+*.swn
