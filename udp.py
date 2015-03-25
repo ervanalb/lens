@@ -5,7 +5,13 @@ import dpkt
 class UDPLayer(ethernet.NetLayer):
     IN_TYPES = "IP"
     OUT_TYPE = "UDP"
-    def register_app(
+
+    def __init__(self, prev_layer=None):
+        self.prev_layer = prev_layer
+        self.apps = {}
+
+    def register_app(self, port, handler):
+        self.apps[port] = handler
 
     @gen.coroutine
     def on_read(self, src, data):

@@ -187,23 +187,27 @@ class TCPLayer(NetLayer):
         dst = self.route(src)
         #conn_id = connection_id(pkt)
         conn_id = connection_id(pkt, header)
-        if conn_id[::-1] in self.connections: # is_receiver
-            # The connection was initiated by the dst
-            conn_id = conn_id[::-1]
-            sender, receiver = dst, src 
-        else:
-            sender, receiver = src, dst
 
         # For now, assume that connections are symmetric
-        conn = self.connections.get(conn_id, {src: {}, dst: {}, "count": len(self.connections)})
-        self.connections[conn_id] = conn
+        if conn_id[::-1] in self.connections:
+            conn_id = conn_id[::-1]
+            conn = self.connections[conn_id]
+        elif conn_id not in self.connections:
+            # conn_id[0] corresponds to conn[conn["server"]]
+            # conn_id[1] corresponds to conn[conn["reciever"]]
+            conn = {src: {}, dst: {}, "count": len(self.connections), "sender": src, "reciever": dst}
+            self.connections[conn_id] = conn
+        else:
+            conn = self.connections[conn_id]
+
 
         src_conn = conn[src]
         dst_conn = conn[dst]
-        sender_conn = conn[sender]
-        receiver_conn = conn[receiver]
+
+
         if "next_layer" not in conn:
-            conn["next_layer"] = self.next_layer(conn=conn, prev_layer=self)
+            # Create next layer for this connection
+            conn["next_layer"] = self.next_layer(prev_layer=self)
         next_layer = conn["next_layer"]
 
         host_ip = header["ip_src"]
@@ -247,15 +251,15 @@ class TCPLayer(NetLayer):
                 src_conn["in_buffer"] += data
                 src_conn["ack"] += len(data)
 
-                # Bubble up data to next layer
-                yield next_layer.on_read(src, data)
-
                 # ACK the data
-                yield self.write_packet(src, src_conn, flags="A")
+                yield self.write_packet(src, conn_id, flags="A")
+
+                # Bubble up data to next layer
+                yield next_layer.on_read(src, data, conn_id)
 
 
         if pkt.flags & dpkt.tcp.TH_SYN:
-            # Assume we aren't redirecting the traffic, just modifying the contents
+            # Assume we aren't redirecting the traffic to a different IP, just modifying the contents
 
             dst_conn["ip_header"] = header
             dst_conn["ip_src"] = host_ip
@@ -305,25 +309,24 @@ class TCPLayer(NetLayer):
                 
                 # Forward SYNACK
                 dst_conn["state"] = "SYN-RECIEVED"
-                yield self.write_packet(dst, dst_conn, flags="SA")
+                yield self.write_packet(dst, conn_id, flags="SA")
             else:
                 dst_conn["state"] = "SYN-SENT"
                 # Forward SYN
-                yield self.write_packet(dst, dst_conn, flags="S")
+                yield self.write_packet(dst, conn_id, flags="S")
 
         if pkt.flags & dpkt.tcp.TH_FIN:
-            print "FIN", sender_conn.get('state'), receiver_conn.get('state'), src_conn.get('state')
             if src_conn.get("state") == "ESTABLISHED":
                 src_conn["ack"] += 1
                 src_conn["state"] = "LAST-ACK"
                 if dst_conn.get("state") == "ESTABLISHED":
                     dst_conn["state"] = "FIN-WAIT-1"
                     # Forward FIN
-                    yield self.write_packet(dst, dst_conn, flags="FA")
+                    yield self.write_packet(dst, conn_id, flags="FA")
                     dst_conn["seq"] += 1
 
                 # Reply with FINACK 
-                yield self.write_packet(src, src_conn, flags="FA")
+                yield self.write_packet(src, conn_id, flags="FA")
                 src_conn["seq"] += 1 
 
             elif src_conn.get("state") == "FIN-WAIT-1":
@@ -331,10 +334,10 @@ class TCPLayer(NetLayer):
                 src_conn["state"] = "CLOSED"
 
                 # Reply with ACK 
-                yield self.write_packet(src, src_conn, flags="A")
+                yield self.write_packet(src, conn_id, flags="A")
 
                 # Bubble up close event
-                yield next_layer.on_close(src)
+                yield next_layer.on_close(src, conn_id)
                 #TODO: prune connection obj
 
         elif pkt.flags & dpkt.tcp.TH_ACK:
@@ -346,13 +349,13 @@ class TCPLayer(NetLayer):
                 src_conn["seq"] = max(src_conn.get('seq'), pkt.ack)
                 # We don't need to ACK the ACK unless it's a SYNACK
                 if pkt.flags & dpkt.tcp.TH_SYN:
-                    yield self.write_packet(src, src_conn, flags="A")
+                    yield self.write_packet(src, conn_id, flags="A")
 
             if src_conn.get("state") == "LAST-ACK":
                 src_conn["state"] = "CLOSED"
 
                 # Bubble up close event
-                yield next_layer.on_close(src)
+                yield next_layer.on_close(src, conn_id)
                 #TODO: prune connection obj
 
 
@@ -366,12 +369,12 @@ class TCPLayer(NetLayer):
                     print 'invalid RST', dst_conn
                 if 'seq' in dst_conn:
                     # Forward RST
-                    yield self.write_packet(dst, dst_conn, flags="R")
+                    yield self.write_packet(dst, conn_id, flags="R")
                 else:
                     yield self.passthru(src, payload, header)
 
                 # Bubble up close event
-                yield next_layer.on_close(src)
+                yield next_layer.on_close(src, conn_id)
                 #TODO: prune connection obj
             else:
                 # This isn't on a actively modified connection, passthru
@@ -382,7 +385,8 @@ class TCPLayer(NetLayer):
             yield self.passthru(src, payload, header)
 
     @gen.coroutine
-    def write_packet(self, dst, conn, flags="A"):
+    def write_packet(self, dst, conn_id, flags="A"):
+        conn = self.connections[conn_id][dst]
         header = conn["ip_header"]
         payload = None
         seq = conn["seq"]
@@ -434,50 +438,13 @@ class TCPLayer(NetLayer):
                     conn.get('ts_val', 0),
                     conn.get('ts_ecr', 0)
                 )
+        #self.connections[conn_id][dst] = conn
         # Don't stringify packet so the IP layer can calculate the checksum for us
         yield self.prev_layer.write(dst, pkt, header)
 
     @gen.coroutine
-    def write_conn(self, dst, data, conn):
-        dst_conn = conn[dst]
+    def write(self, dst, data, conn_id):
+        dst_conn = self.connections[conn_id][dst]
         dst_conn["out_buffer"] += data
-        yield self.write_packet(dst, dst_conn, flags="A")
-
-    @gen.coroutine
-    def write(self, dst, data, header):
-        yield self.write_conn(dst, data, header)
+        yield self.write_packet(dst, conn_id, flags="A")
         
-class TCPApplicationLayer(NetLayer):
-    IN_TYPES = {"TCP"}
-    OUT_TYPE = "TCP App"
-    def __init__(self, conn, prev_layer, next_layer=None):
-        self.conn = conn
-        self.prev_layer = prev_layer
-        self.next_layer = next_layer
-
-    @gen.coroutine
-    def bubble(self, src, data, *args):
-        if self.next_layer is not None:
-            yield self.next_layer.on_read(src, data, *args)
-        else:
-            yield self.prev_layer.write_conn(self.route(src), data, self.conn)
-        
-    @gen.coroutine
-    def on_read(self, src, data, *args):
-        yield self.bubble(src, data, *args)
-
-    @gen.coroutine
-    def on_close(self, src, *args):
-        if self.next_layer is not None:
-            yield self.next_layer.on_close(src, *args)
-
-    @gen.coroutine
-    def write_conn(self, dst, data, conn, *args):
-        # `conn` is actually just ignored, which is odd #FIXME
-        yield self.prev_layer.write_conn(dst, data, self.conn, *args)
-
-    @gen.coroutine
-    def write(self, dst, data, *args):
-        yield self.prev_layer.write(dst, data, self.conn, *args)
-
-

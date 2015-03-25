@@ -9,7 +9,7 @@ import tcp
 
 import tornado.gen as gen
 
-class LineBufferLayer(tcp.TCPApplicationLayer):
+class LineBufferLayer(ethernet.NetLayer):
     IN_TYPES = {"TCP App"}
     OUT_TYPE = "TCP App"
     # Buffers incoming data line-by-line
@@ -36,12 +36,12 @@ class LineBufferLayer(tcp.TCPApplicationLayer):
                 pass
 
     @gen.coroutine
-    def on_close(self, src):
+    def on_close(self, src, conn):
         if self.buff:
             yield self.bubble(src, self.buff)
-        yield super(LineBufferLayer, self).on_close(src)
+        #yield super(LineBufferLayer, self).on_close(src, conn)
 
-class CloudToButtLayer(tcp.TCPApplicationLayer):
+class CloudToButtLayer(ethernet.NetLayer):
     IN_TYPES = {"TCP App"}
     OUT_TYPE = "TCP App"
     @gen.coroutine
@@ -83,12 +83,12 @@ if __name__ == "__main__":
         l(tcp.TCPLayer, debug=True),
     ])
 
-    def stateful_layers(conn, prev_layer):
+    def stateful_layers(prev_layer):
         layers = connect(
             prev_layer, [
             l(LineBufferLayer),
             l(CloudToButtLayer), 
-        ], conn=conn)
+        ])
         # Fix prev_layer.next_layer munging
         prev_layer.next_layer = stateful_layers 
         return layers[0]
