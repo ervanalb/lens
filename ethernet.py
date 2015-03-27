@@ -106,6 +106,7 @@ class EthernetLayer(NetLayer):
             pkt = dpkt.ethernet.Ethernet(data)
         except dpkt.NeedData:
             yield self.passthru(src, data)
+            return
         header = {
             "eth_dst": self.pretty_mac(pkt.dst),
             "eth_src": self.pretty_mac(pkt.src),

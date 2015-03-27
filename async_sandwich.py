@@ -6,6 +6,9 @@ import enum
 import ethernet 
 import ip
 import tcp
+import udp
+import http
+
 
 import tornado.gen as gen
 
@@ -67,7 +70,8 @@ def l(constructor, *args, **kwargs):
     return (constructor, args, kwargs)
 
 if __name__ == "__main__":
-    addr = "18.238.0.97"
+    #addr = "18.238.0.97"
+    addr = "192.168.1.10"
     print "Capturing traffic to:", addr
 
     tap = driver.Tap()
@@ -79,21 +83,31 @@ if __name__ == "__main__":
         link_layer, [
         l(ethernet.EthernetLayer),
         l(ip.IPv4Layer, addr_filter=[addr]),
+        l(udp.UDPLayer),
         l(tcp.TCPPassthruLayer, ports=[22]),
-        l(tcp.TCPLayer, debug=True),
+        l(tcp.TCPLayer, debug=False),
     ])
+    udp_layer = stateless_layers[2]
+    tcp_layer = stateless_layers[-1]
 
-    def stateful_layers(prev_layer):
-        layers = connect(
-            prev_layer, [
-            l(LineBufferLayer),
-            l(CloudToButtLayer), 
-        ])
+    def stateful_layers(prev_layer, *args, **kwargs):
+        try:
+            layers = connect(
+                prev_layer, [
+                l(LineBufferLayer),
+                #l(CloudToButtLayer, *args, **kwargs), 
+                l(http.HTTPLayer, *args, **kwargs),
+            ])
+        except:
+            prev_layer.next_layer = stateful_layers 
+            raise
         # Fix prev_layer.next_layer munging
         prev_layer.next_layer = stateful_layers 
+        print prev_layer.next_layer, 'state'
         return layers[0]
 
-    stateless_layers[-1].next_layer = stateful_layers
+    tcp_layer.next_layer = stateful_layers
+    udp_layer.register_app(udp.UDPVideoLayer)
 
     try:
         loop.start()

@@ -207,7 +207,7 @@ class TCPLayer(NetLayer):
 
         if "next_layer" not in conn:
             # Create next layer for this connection
-            conn["next_layer"] = self.next_layer(prev_layer=self)
+            conn["next_layer"] = self.next_layer(prev_layer=self, sender=src, reciever=dst)
         next_layer = conn["next_layer"]
 
         host_ip = header["ip_src"]
@@ -220,7 +220,6 @@ class TCPLayer(NetLayer):
             #dst_conn['ts_val'] = ts_val
             src_conn['ts_ecr'] = ts_val
             t = self.timers[host_ip].get_time()
-            print src, ts_val, t, '%', (ts_val - t) / (ts_val + 0.1) * 100
             self.timers[host_ip].put_sample(ts_val)
         else:
             ts_val, ts_ecr = None, None
@@ -304,7 +303,8 @@ class TCPLayer(NetLayer):
 
             if src_conn.get("state") == "SYN-SENT":
                 src_conn["state"] = "ESTABLISHED"
-                print "established", src
+                if self.debug:
+                    print "TCP established", src
                 # The ACK reply gets handled later on
                 
                 # Forward SYNACK
