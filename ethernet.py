@@ -28,9 +28,10 @@ class NetLayer(object):
     IN_TYPES = set()
     OUT_TYPE = None
 
-    def __init__(self, prev_layer=None, next_layer=None):
+    def __init__(self, prev_layer=None, next_layer=None, debug=True):
         self.prev_layer = prev_layer
         self.next_layer = next_layer
+        self.debug = debug
 
     @gen.coroutine
     def on_read(self, src, payload, header=None):
@@ -40,21 +41,19 @@ class NetLayer(object):
     def bubble(self, src, *args, **kwargs):
         if self.next_layer is not None:
             yield self.next_layer.on_read(src, *args, **kwargs)
-        elif self.prev_layer is not None:
-            yield self.prev_layer.write(self.route(src), *args, **kwargs)
+        #elif self.prev_layer is not None:
+            #yield self.prev_layer.write(self.route(src), *args, **kwargs)
         else:
             yield self.write(self.route(src), *args, **kwargs)
 
     @gen.coroutine
     def passthru(self, src, *args, **kwargs):
-        if self.prev_layer is not None:
-            yield self.prev_layer.write(self.route(src), *args, **kwargs)
+        yield self.prev_layer.write(self.route(src), *args, **kwargs)
 
     @gen.coroutine
     def write(self, dst, payload, header=None):
         # Override me
-        if self.prev_layer is not None:
-            yield self.prev_layer.write(dst, payload, header)
+        yield self.prev_layer.write(dst, payload, header)
 
     def route(self, key):
         return self.routing[key]
@@ -107,6 +106,8 @@ class EthernetLayer(NetLayer):
         except dpkt.NeedData:
             yield self.passthru(src, data)
             return
+        if self.debug:
+            print "eth recv", src, repr(pkt), "\n"
         header = {
             "eth_dst": self.pretty_mac(pkt.dst),
             "eth_src": self.pretty_mac(pkt.src),
@@ -121,6 +122,10 @@ class EthernetLayer(NetLayer):
                 src=self.wire_mac(header["eth_src"]),
                 type=header["eth_type"],
                 data=payload)
+        if self.debug:
+            str(pkt)
+            print "eth send", dst, repr(pkt), "\n"
+
         yield self.prev_layer.write(dst, str(pkt))
 
 def attach(nic):

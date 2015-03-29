@@ -22,10 +22,12 @@ class IPv4Layer(ethernet.NetLayer):
 
     @gen.coroutine
     def on_read(self, src, payload, header):
+        header = header.copy()
         if header["eth_type"] == dpkt.ethernet.ETH_TYPE_IP:
             #pkt = dpkt.ip.IP(payload)
             pkt = payload
             header["ip_id"] = pkt.id
+            header["ip_flags"] = pkt.off & ~dpkt.ip.IP_OFFMASK
             header["ip_dst"] = dst_ip = self.pretty_ip(pkt.dst)
             header["ip_src"] = src_ip = self.pretty_ip(pkt.src)
             header["ip_p"] = pkt.p
@@ -37,10 +39,12 @@ class IPv4Layer(ethernet.NetLayer):
 
     @gen.coroutine
     def write(self, dst, payload, header):
+        header = header.copy()
         pkt = dpkt.ip.IP(
                 id=header.get("ip_id", self.next_id),
                 dst=self.wire_ip(header["ip_dst"]),
                 src=self.wire_ip(header["ip_src"]),
+                off=header["ip_flags"],
                 p=header["ip_p"])
         if "ip_id" not in header:
             self.next_id = (self.next_id + 1) & 0xFFFF

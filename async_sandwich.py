@@ -79,16 +79,26 @@ if __name__ == "__main__":
     loop, link_layer = ethernet.build_ethernet_loop()
     tap.mitm()
 
+    """
     stateless_layers = connect(
         link_layer, [
         l(ethernet.EthernetLayer),
         l(ip.IPv4Layer, addr_filter=[addr]),
         l(udp.UDPLayer),
-        l(tcp.TCPPassthruLayer, ports=[22]),
-        l(tcp.TCPLayer, debug=False),
+        #l(tcp.TCPPassthruLayer, ports=[22]),
+        #l(tcp.TCPLayer, debug=False),
     ])
-    udp_layer = stateless_layers[2]
-    tcp_layer = stateless_layers[-1]
+    """
+    #link_layer;
+    eth_layer = ethernet.EthernetLayer(prev_layer=link_layer, debug=False)
+    ip_layer = ip.IPv4Layer(prev_layer=eth_layer, addr_filter=[addr])
+    udp_layer = udp.UDPLayer(prev_layer=ip_layer)
+    link_layer.next_layer = eth_layer
+    eth_layer.next_layer = ip_layer
+    ip_layer.next_layer = udp_layer
+
+    #udp_layer = stateless_layers[2]
+    #tcp_layer = stateless_layers[-1]
 
     def stateful_layers(prev_layer, *args, **kwargs):
         try:
@@ -106,7 +116,7 @@ if __name__ == "__main__":
         print prev_layer.next_layer, 'state'
         return layers[0]
 
-    tcp_layer.next_layer = stateful_layers
+    #tcp_layer.next_layer = stateful_layers
     udp_layer.register_app(udp.UDPVideoLayer)
 
     try:
