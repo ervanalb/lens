@@ -1,4 +1,3 @@
-# Packet sniffer in python
 # For Linux
 
 ETH_P_ALL = 3 
@@ -20,48 +19,7 @@ try:
 except:
     import Queue as queue
 
-class NetLayer(object):
-    routing = {
-        1: 0,
-        0: 1
-    }
-    IN_TYPES = set()
-    OUT_TYPE = None
-
-    def __init__(self, prev_layer=None, next_layer=None):
-        self.prev_layer = prev_layer
-        self.next_layer = next_layer
-
-    @gen.coroutine
-    def on_read(self, src, payload, header=None):
-        yield self.bubble(*args **kwargs)
-
-    @gen.coroutine
-    def bubble(self, src, *args, **kwargs):
-        if self.next_layer is not None:
-            yield self.next_layer.on_read(src, *args, **kwargs)
-        elif self.prev_layer is not None:
-            yield self.prev_layer.write(self.route(src), *args, **kwargs)
-        else:
-            yield self.write(self.route(src), *args, **kwargs)
-
-    @gen.coroutine
-    def passthru(self, src, *args, **kwargs):
-        if self.prev_layer is not None:
-            yield self.prev_layer.write(self.route(src), *args, **kwargs)
-
-    @gen.coroutine
-    def write(self, dst, payload, header=None):
-        # Override me
-        if self.prev_layer is not None:
-            yield self.prev_layer.write(dst, payload, header)
-
-    def route(self, key):
-        return self.routing[key]
-
-    def unroute(self, key):
-        #TODO
-        return self.routing[key]
+from base import NetLayer
 
 class LinkLayer(object):
     SNAPLEN=1550

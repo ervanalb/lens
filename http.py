@@ -1,6 +1,30 @@
 #from tcp import TCPApplicationLayer
-from ethernet import NetLayer
+from base import NetLayer
 from tornado import gen, httputil
+
+class MultiOrderedDict(list):
+    def __init__(self, from_list=None):
+        self.d = {}
+        if from_list is not None:
+            for (k, v) in from_list:
+                self.push(k, v)
+
+    def first(self, key, default=None):
+        if key in self.d:
+            return self.d[key][0]
+        return default
+
+    def last(self, key, default=None):
+        if key in self.d:
+            return self.d[key][-1]
+        return default
+
+    def push(self, key, value):
+        self.append((key, value))
+        if key in self.d:
+            self.d[key].append(value)
+        else:
+            self.d[key] = [value]
 
 #class HTTPLayer(TCPApplicationLayer):
 class HTTPLayer(NetLayer):
