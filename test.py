@@ -13,17 +13,18 @@ class FileTestLayer(base.NetLayer):
         self.out_files = out_files
 
     @gen.coroutine
-    def on_read(self, src):
+    def on_read(self, src, header, data):
+        header = {'id': 0}
         while True:
             n = random.randint(400, 1200)
             data = self.in_files[src].read(n)
-            yield self.bubble(src, data, {})
+            yield self.bubble(src, header, data)
             if len(data) < n:
-                yield self.on_close(src)
+                yield self.close_bubble(src, header)
                 break
 
     @gen.coroutine
-    def write(self, dst, payload, header):
+    def write(self, dst, header, payload):
         self.out_files[dst].write(payload)
 
 if __name__ == "__main__":
@@ -37,14 +38,16 @@ if __name__ == "__main__":
     out_files = {x: open((BASE_NAME % x) + ".out", "w") for x in [0, 1]}
 
     file_layer = FileTestLayer(in_files, out_files)
+    http_lbf_layer = base.LineBufferLayer()
+    file_layer.register_child(http_lbf_layer)
 
-    layers = connect(
-            file_layer, [
-            l(base.LineBufferLayer),
-            l(http.HTTPLayer, 0, 1),
-            l(base.CloudToButtLayer)
-        ])
+    http_layer = http.HTTPLayer()
+    http_layer.CONN_ID_KEY = "id"
+    http_lbf_layer.register_child(http_layer)
 
-    file_layer.on_read(0)
-    file_layer.on_read(1)
+    c2b_layer = base.CloudToButtLayer()
+    http_layer.register_child(c2b_layer, "text")
+
+    file_layer.on_read(0, None, None)
+    file_layer.on_read(1, None, None)
 

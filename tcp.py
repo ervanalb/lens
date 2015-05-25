@@ -122,27 +122,21 @@ class TCPPassthruLayer(NetLayer):
     """ Simple TCP layer which will pass packets on certain TCP ports through """
     IN_TYPES = {"IP"}
     OUT_TYPE = "IP"
-    def __init__(self, prev_layer=None, next_layer=None, ports=None):
-        self.prev_layer = prev_layer
-        self.next_layer = next_layer
+    SINGLE_CHILD = True
+
+    def __init__(self, ports=None):
+        if ports is None:
+            ports = []
         self.ports = ports
 
     @gen.coroutine
-    def on_read(self, src, payload, header):
-        if header.get("eth_type") != dpkt.ethernet.ETH_TYPE_IP or header.get("ip_p") != dpkt.ip.IP_PROTO_TCP:
-            yield self.passthru(src, payload, header)
-            return 
-
-        #try:
-        #    pkt = dpkt.tcp.TCP(payload)
-        #except dpkt.NeedData:
-        #    return
+    def on_read(self, src, header, payload):
         pkt = payload
 
         if pkt.sport in self.ports or pkt.dport in self.ports:
-            yield self.passthru(src, payload, header)
+            yield self.passthru(src, header, payload)
         else:
-            yield self.bubble(src, payload, header)
+            yield self.bubble(src, header, payload)
 
 # Half Connection attributes
 # From the perspective of sending packets back through the link
@@ -160,6 +154,11 @@ class TCPPassthruLayer(NetLayer):
 class TCPLayer(NetLayer):
     IN_TYPES = {"IP"}
     OUT_TYPE = "TCP"
+    SINGLE_CHILD = False
+
+    def match_child(self, src, header, key):
+        return key == header["tcp_conn"][1][1]
+
     def __init__(self, next_layer=None, prev_layer=None, debug=True):
         self.next_layer = next_layer # next_layer is a *factory*
         self.prev_layer = prev_layer
@@ -168,15 +167,7 @@ class TCPLayer(NetLayer):
         self.timers = collections.defaultdict(TimestampEstimator)
 
     @gen.coroutine
-    def on_read(self, src, payload, header):
-        if self.prev_layer is None or self.next_layer is None:
-            yield self.passthru(src, payload, header)
-            return 
-
-        if header.get("eth_type") != dpkt.ethernet.ETH_TYPE_IP or header.get("ip_p") != dpkt.ip.IP_PROTO_TCP:
-            yield self.passthru(src, payload, header)
-            return 
-
+    def on_read(self, src, header, payload):
         pkt = payload
 
         #TODO: validate checksums / packet
@@ -203,12 +194,6 @@ class TCPLayer(NetLayer):
 
         src_conn = conn[src]
         dst_conn = conn[dst]
-
-
-        if "next_layer" not in conn:
-            # Create next layer for this connection
-            conn["next_layer"] = self.next_layer(prev_layer=self, sender=src, reciever=dst)
-        next_layer = conn["next_layer"]
 
         host_ip = header["ip_src"]
         dest_ip = header["ip_dst"]
@@ -254,7 +239,7 @@ class TCPLayer(NetLayer):
                 yield self.write_packet(src, conn_id, flags="A")
 
                 # Bubble up data to next layer
-                yield next_layer.on_read(src, data, {"tcp_conn": conn_id})
+                yield self.bubble(src, {"tcp_conn": conn_id}, data)
 
 
         if pkt.flags & dpkt.tcp.TH_SYN:
@@ -337,7 +322,7 @@ class TCPLayer(NetLayer):
                 yield self.write_packet(src, conn_id, flags="A")
 
                 # Bubble up close event
-                yield next_layer.on_close(src, conn_id)
+                yield self.close_bubble(src, {"tcp_conn": conn_id}, data)
                 #TODO: prune connection obj
 
         elif pkt.flags & dpkt.tcp.TH_ACK:
@@ -355,7 +340,7 @@ class TCPLayer(NetLayer):
                 src_conn["state"] = "CLOSED"
 
                 # Bubble up close event
-                yield next_layer.on_close(src, conn_id)
+                yield self.close_bubble(src, {"tcp_conn": conn_id}, data)
                 #TODO: prune connection obj
 
 
@@ -371,7 +356,7 @@ class TCPLayer(NetLayer):
                     # Forward RST
                     yield self.write_packet(dst, conn_id, flags="R")
                 else:
-                    yield self.passthru(src, payload, header)
+                    yield self.passthru(src, header, payload)
 
                 # Bubble up close event
                 yield next_layer.on_close(src, conn_id)
@@ -379,10 +364,10 @@ class TCPLayer(NetLayer):
             else:
                 # This isn't on a actively modified connection, passthru
                 print "RST passthru"
-                yield self.passthru(src, payload, header)
+                yield self.passthru(src, header, payload)
 
         if "state" not in dst_conn: # Not handled
-            yield self.passthru(src, payload, header)
+            yield self.passthru(src, header, payload)
 
     @gen.coroutine
     def write_packet(self, dst, conn_id, flags="A"):
@@ -440,10 +425,10 @@ class TCPLayer(NetLayer):
                 )
         #self.connections[conn_id][dst] = conn
         # Don't stringify packet so the IP layer can calculate the checksum for us
-        yield self.prev_layer.write(dst, pkt, header)
+        yield self.write_back(dst, header, pkt)
 
     @gen.coroutine
-    def write(self, dst, data, header):
+    def write(self, dst, header, data):
         dst_conn = self.connections[header["tcp_conn"]][dst]
         dst_conn["out_buffer"] += data
         yield self.write_packet(dst, conn_id, flags="A")

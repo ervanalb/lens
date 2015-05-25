@@ -7,101 +7,137 @@ class NetLayer(object):
     }
     # IN_TYPES & OUT_TYPES are used for static type checking so that
     # warnings can be raised when mismatched layers are connected.
+    #TODO - Static type checking? Standard type names?
     IN_TYPES = set()
     OUT_TYPE = None
 
-    def __init__(self, prev_layer=None, next_layer=None):
-        self.prev_layer = prev_layer
-        self.next_layer = next_layer
+    # Does this layer have multiple children to choose from, or just one?
+    # Override this when subclassing
+    SINGLE_CHILD = True
+
+    def __init__(self):
+        if self.SINGLE_CHILD:
+            self.child = None
+        else:
+            self.children = {}
+
+    def register_child(self, child, key=None):
+        if self.SINGLE_CHILD:
+            self.child = child
+        else:
+            self.children[key] = child
+        child.parent = self
+
+    def resolve_child(self, src, header):
+        # Each packet can only resolve to *ONE* child
+        if self.SINGLE_CHILD:
+            return self.child
+        else:
+            for key, child in self.children.items():
+                if self.match_child(src, header, key):
+                    return child
+
+    def match_child(self, src, header, key):
+        # Override me 
+        raise NotImplementedError
 
     @gen.coroutine
-    def on_read(self, src, payload, header=None):
-        yield self.bubble(*args **kwargs)
+    def on_read(self, src, header, payload):
+        # Override me 
+        yield self.bubble(src, header, payload)
 
     @gen.coroutine
-    def on_close(self, src, header=None):
-        if self.next_layer is not None:
-            yield self.next_layer.on_close(src, header)
+    def on_close(self, src, header):
+        # Override me  -- if additional things need to be called on close
+        # Called when a "connection" or "session" is terminated
+        yield self.close_bubble(src, header)
 
     @gen.coroutine
-    def bubble(self, src, *args, **kwargs):
+    def write(self, dst, header, payload):
+        # Override me  -- if `on_read` pulled any data out of `payload` into `header`.
+        # How does this layer handle messages?
+        yield self.write_back(dst, header, payload)
+
+    @gen.coroutine
+    def close_bubble(self, src, header):
+        child = self.resolve_child(src, header)
+        if child is not None:
+            yield child.on_close(src, header)
+
+    @gen.coroutine
+    def bubble(self, src, header, payload):
         # Bubble tries to pass on a message in the following way:
         # 1. If the next layer exists, pass the message to the next layer
-        ##XXX# 2. Otherwise, if the previous layer exists, pass the message back
-        # 3. Otherwise, use self.write(...), (which probably just writes back to previous layer)
-        if self.next_layer is not None:
-            yield self.next_layer.on_read(src, *args, **kwargs)
-        #XXX This may have broken things, but now it makes sense
-        #elif self.prev_layer is not None:
-        #    yield self.prev_layer.write(self.route(src), *args, **kwargs)
+        # 2. Otherwise, use self.write(...), (which probably just writes back to previous layer)
+        child = self.resolve_child(src, header)
+        if child is not None:
+            yield child.on_read(src, header, payload)
         else:
-            yield self.write(self.route(src), *args, **kwargs)
+            yield self.write(self.route(src, header), header, payload)
 
     @gen.coroutine
-    def passthru(self, src, *args, **kwargs):
-        # Pass the message through this layer transparently, not bubbling up.
-        if self.prev_layer is not None:
-            yield self.prev_layer.write(self.route(src), *args, **kwargs)
+    def write_back(self, dst, header, payload):
+        if self.parent is None:
+            raise Exception("Unable to write_back, no parent on %s" % self)
+        yield self.parent.write(dst, header, payload)
 
     @gen.coroutine
-    def write(self, dst, payload, header=None):
-        # Override me - How does this layer handle messages?
-        if self.prev_layer is not None:
-            yield self.prev_layer.write(dst, payload, header)
+    def passthru(self, src, header, payload):
+        # Stop trying to parse this message, just write back what's been parsed so far
+        # Ignore this layer & all children 
+        yield self.write_back(self.route(src, header), header, payload)
 
-    def route(self, key, header=None):
-        # Given a message from port `key`, determine which port to send it to
-        return self.routing[key]
+    def route(self, src, header):
+        # Given a message from port `src`, determine which port to send it to
+        return self.routing[src]
 
-    def unroute(self, key, header=None):
-        # Given a message to port `key`, determine which port it should have come from
-        return self.routing[key]
+    def unroute(self, dst, header):
+        # Given a message to port `dst`, determine which port it should have come from
+        return self.routing[dst]
 
 class LineBufferLayer(NetLayer):
     # Buffers incoming data line-by-line
+    SINGLE_CHILD = True
+
     def __init__(self, *args, **kwargs):
         super(LineBufferLayer, self).__init__(*args, **kwargs)
         self.buff = ""
         
     @gen.coroutine
-    def on_read(self, src, data, *args):
+    def on_read(self, src, header, data):
         if data is None:
             buff = self.buff
             self.buff = ""
-            yield self.bubble(src, buff, *args)
+            yield self.bubble(src, header, buff)
         else:
             self.buff += data
             if '\n' in self.buff:
                 lines = self.buff.split('\n')
-                #print 'linebuffer: %d newlines' % (len(lines) -1)
                 self.buff = lines[-1]
                 for line in lines[:-1]:
-                    yield self.bubble(src, line + "\n", *args)
+                    yield self.bubble(src, header, line + "\n")
             else:
-                #print 'linebuffer: no newline'
                 pass
 
     @gen.coroutine
-    def on_close(self, src, conn):
+    def on_close(self, src, header):
         if self.buff:
-            yield self.bubble(src, self.buff)
-        yield super(LineBufferLayer, self).on_close(src, conn)
+            yield self.bubble(src, header, self.buff)
+        yield self.close_bubble(src, header)
 
 class CloudToButtLayer(NetLayer):
-    IN_TYPES = {"TCP App"}
-    OUT_TYPE = "TCP App"
+    SINGLE_CHILD = True
     @gen.coroutine
-    def on_read(self, src, data, *args):
-        #print 'cloud2butt: replacing in %d bytes' % len(data)
-        butt_data = data.replace("cloud", "my butt")
-        yield self.bubble(src, butt_data, *args)
+    def write(self, dst, header, payload):
+        butt_data = payload.replace("cloud", "my butt")
+        yield self.write_back(dst, header, butt_data)
 
-
+#TODO
 def connect(prev, layer_list, check_types=False, **global_kwargs):
     layers = []
     for (const, args, kwargs) in layer_list:
         kwargs.update(global_kwargs)
-        new = const(*args, prev_layer=prev, **kwargs)
+        new = const(*args, parent=prev, **kwargs)
         layers.append(new)
         if prev.OUT_TYPE not in new.IN_TYPES and check_types:
             print "Warning: connecting incompatible {} -> {}".format(repr(prev), repr(new))

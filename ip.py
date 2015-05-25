@@ -14,29 +14,29 @@ class IPv4Layer(ethernet.NetLayer):
     def wire_ip(ip):
         return "".join([chr(int(x)) for x in ip.split(".")])
 
-    def __init__(self, prev_layer=None, next_layer=None, addr_filter=None):
-        self.prev_layer = prev_layer
-        self.next_layer = next_layer
+    def __init__(self, addr_filter=None):
         self.addr_filter = addr_filter
         self.next_id = 0
 
-    @gen.coroutine
-    def on_read(self, src, payload, header):
-        if header["eth_type"] == dpkt.ethernet.ETH_TYPE_IP:
-            #pkt = dpkt.ip.IP(payload)
-            pkt = payload
-            header["ip_id"] = pkt.id
-            header["ip_dst"] = dst_ip = self.pretty_ip(pkt.dst)
-            header["ip_src"] = src_ip = self.pretty_ip(pkt.src)
-            header["ip_p"] = pkt.p
-            if self.addr_filter is None or src_ip in self.addr_filter or dst_ip in self.addr_filter:
-                #print src, repr(pkt)
-                yield self.bubble(src, pkt.data, header)
-        else:
-            yield self.passthru(src, payload, header)
+    def match_child(self, src, header, key):
+        return key == header["ip_p"]
 
     @gen.coroutine
-    def write(self, dst, payload, header):
+    def on_read(self, src, header, payload):
+        # It already comes parsed by dpkt from EthernetLayer
+        #pkt = dpkt.ip.IP(payload) 
+        pkt = payload 
+        header["ip_id"] = pkt.id
+        header["ip_dst"] = dst_ip = self.pretty_ip(pkt.dst)
+        header["ip_src"] = src_ip = self.pretty_ip(pkt.src)
+        header["ip_p"] = pkt.p
+        if self.addr_filter is None or src_ip in self.addr_filter or dst_ip in self.addr_filter:
+            yield self.bubble(src, header, payload)
+        else:
+            yield self.passthru(src, header, payload)
+
+    @gen.coroutine
+    def write(self, dst, header, payload):
         pkt = dpkt.ip.IP(
                 id=header.get("ip_id", self.next_id),
                 dst=self.wire_ip(header["ip_dst"]),
@@ -46,5 +46,5 @@ class IPv4Layer(ethernet.NetLayer):
             self.next_id = (self.next_id + 1) & 0xFFFF
         pkt.data = payload
         pkt.len += len(payload)
-        yield self.prev_layer.write(dst, str(pkt), header)
+        yield self.write_back(dst, str(pkt), header)
 

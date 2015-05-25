@@ -22,12 +22,19 @@ except:
 from base import NetLayer
 
 class LinkLayer(object):
+    # Not actually a subclass of NetLayer, but exposes a similar interface for consistency
     SNAPLEN=1550
+
     IN_TYPES = set()
     OUT_TYPE = "Raw"
-    def __init__(self, streams, next_layer=None):
-        self.next_layer = next_layer
+    SINGLE_CHILD = True
+
+    def __init__(self, streams):
         self.streams = streams
+
+    def register_child(self, child):
+        self.child = child
+        child.parent = self
 
     @gen.coroutine
     def on_read(self, src):
@@ -39,11 +46,11 @@ class LinkLayer(object):
                 if e.args[0] not in (errno.EWOULDBLOCK, errno.EAGAIN):
                     raise
                 return
-            if self.next_layer:
-                yield self.next_layer.on_read(src, data[:-2])
+            if self.child:
+                yield self.child.on_read(src, data[:-2])
 
     @gen.coroutine
-    def write(self, dst, data):
+    def write(self, dst, header, data):
         yield self.streams[dst].write(data)
 
 
@@ -58,28 +65,31 @@ class EthernetLayer(NetLayer):
     def wire_mac(mac):
         return "".join([chr(int(x, 16)) for x in mac.split(":")])
 
+    def match_child(self, src, header, key):
+        return key == header["eth_type"]
+
     @gen.coroutine
-    def on_read(self, src, data):
+    def on_read(self, src, header, data):
         try:
             pkt = dpkt.ethernet.Ethernet(data)
         except dpkt.NeedData:
-            yield self.passthru(src, data)
+            yield self.passthru(src, header, data)
             return
         header = {
             "eth_dst": self.pretty_mac(pkt.dst),
             "eth_src": self.pretty_mac(pkt.src),
             "eth_type": pkt.type,
         }
-        yield self.bubble(src, pkt.data, header)
+        yield self.bubble(src, header, pkt.data)
 
     @gen.coroutine
-    def write(self, dst, payload, header):
+    def write(self, dst, header, payload):
         pkt = dpkt.ethernet.Ethernet(
                 dst=self.wire_mac(header["eth_dst"]),
                 src=self.wire_mac(header["eth_src"]),
                 type=header["eth_type"],
                 data=payload)
-        yield self.prev_layer.write(dst, str(pkt))
+        yield self.write_back(dst, header, str(pkt))
 
 def attach(nic):
     result = subprocess.call(["ifconfig",nic,"up","promisc"])

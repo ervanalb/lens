@@ -24,35 +24,29 @@ if __name__ == "__main__":
     loop, link_layer = ethernet.build_ethernet_loop()
     tap.mitm()
 
-    stateless_layers = connect(
-        link_layer, [
-        l(ethernet.EthernetLayer),
-        l(ip.IPv4Layer, addr_filter=[addr]),
-        l(udp.UDPLayer),
-        l(tcp.TCPPassthruLayer, ports=[22]),
-        l(tcp.TCPLayer, debug=False),
-    ])
-    udp_layer = stateless_layers[2]
-    tcp_layer = stateless_layers[-1]
+    eth_layer = ethernet.EthernetLayer()
+    link_layer.register_child(eth_layer)
 
-    def stateful_layers(prev_layer, *args, **kwargs):
-        try:
-            layers = connect(
-                prev_layer, [
-                l(base.LineBufferLayer),
-                #l(base.CloudToButtLayer, *args, **kwargs), 
-                l(http.HTTPLayer, *args, **kwargs),
-            ])
-        except:
-            prev_layer.next_layer = stateful_layers 
-            raise
-        # Fix prev_layer.next_layer munging
-        prev_layer.next_layer = stateful_layers 
-        print prev_layer.next_layer, 'state'
-        return layers[0]
+    ipv4_layer = ip.IPv4Layer(addr_filter=[addr])
+    eth_layer.register_child(ipv4_layer, dpkt.ethernet.ETH_TYPE_IP)
 
-    tcp_layer.next_layer = stateful_layers
-    udp_layer.register_app(udp.UDPVideoLayer)
+    udp_layer = udp.UDPLayer()
+    ipv4_layer.register_child(udp_layer, dpkt.ip.IP_PROTO_UDP)
+
+    ssh_filter_layer = tcp.TCPPassthruLayer(ports=[22])
+    ipv4_layer.register_child(ssh_filter_layer, dpkt.ip.IP_PROTO_TCP)
+
+    tcp_layer = tcp.TCPLayer(debug=False)
+    ssh_filter_layer.register_child(tcp_layer)
+
+    http_lbf_layer = base.LineBufferLayer()
+    tcp_layer.register_child(http_lbf_layer, 80)
+
+    http_layer = http.HTTPLayer()
+    http_lbf_layer.register_child(http_layer)
+
+    video_layer = udp.UDPVideoLayer()
+    udp_layer.register_child(video_layer)
 
     try:
         loop.start()

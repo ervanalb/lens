@@ -8,8 +8,8 @@ from tornado import gen, httputil
 class HTTPLayer(NetLayer):
     IN_TYPES = {"TCP App"}
     OUT_TYPE = "HTTP"
-    STATE_START = "start"
-    STATE_HEADERS = "headers"
+
+    SINGLE_CHILD = False
 
     ENCODERS = {
         "gzip": zlib.compress,
@@ -19,32 +19,31 @@ class HTTPLayer(NetLayer):
         "gzip": zlib.decompress,
     }
 
-    def __init__(self, sender, reciever, *args, **kwargs):
+    CONN_ID_KEY = "tcp_conn"
+
+    def __init__(self, *args, **kwargs):
         super(HTTPLayer, self).__init__(*args, **kwargs)
-        self.cl_state = self.STATE_START
-        self.sv_state = self.STATE_START
-        self.client = sender
-        self.server = reciever
-        self.client_conn = None
-        self.server_conn = None
+        self.connections = {}
 
-        self.req = self.request()
-        self.req.next()
-
-        self.resp = self.response()
-        self.resp.next()
+    def match_child(self, src, header, key):
+        #TODO
+        return True
 
     @gen.coroutine
-    def on_read(self, src, data, conn):
-        if src == self.client:
-            # Client -> Server
-            self.client_conn = conn
-            self.req.send(data)
-        elif src == self.server:
-            self.server_conn = conn
-            self.resp.send(data)
+    def on_read(self, src, conn, data):
+        conn_id = conn[self.CONN_ID_KEY]
+        if conn_id not in self.connections:
+            req = self.request(conn)
+            req.next()
+            resp = self.response(conn)
+            resp.next()
+            self.connections[conn_id] = (req, resp)
+        
+        if src in {0, 1}:
+            self.connections[conn_id][src].send(data)
         else:
-            print "Unknown src: {}; ({} -> {})".format(src, self.client, self.server)
+            print "Unknown src: {}"
+            yield self.passthru(src, data, conn)
         #yield self.bubble(src, data, conn)
 
 
@@ -57,91 +56,125 @@ class HTTPLayer(NetLayer):
             name, value = line.split(":", 1)
             hdict.push(name, value.strip())
 
-    def request(self):
+    def request(self, conn):
+        keep_alive = True
         req = None
         headers = MultiOrderedDict()
         body = ""
+        conn = conn.copy()
 
         @gen.coroutine
         def bubble(data):
-            conn = self.client_conn.copy()
             conn["http_headers"] = headers
             conn["http_request"] = req
-            yield self.bubble(self.client, data, conn)
+            yield self.bubble(0, conn, data)
 
-        req_line = yield 
-        req = httputil.parse_request_start_line(req_line.strip())
-        while True:
-            header_line = yield
-            if header_line is None:
-                break
-            if not header_line.strip():
-                break
-            self.parse_header_line(headers, header_line.strip())
-        print "REQUEST", req, headers
-        if header_line is not None:
+        while keep_alive:
+            req_line = yield 
+            req = httputil.parse_request_start_line(req_line.strip())
             while True:
-                data = yield
-                if data is None:
+                header_line = yield
+                if header_line is None:
                     break
-                body += data
+                if not header_line.strip():
+                    break
+                self.parse_header_line(headers, header_line.strip())
 
-        if "content-encoding" in headers:
-            encoding = headers.last("content-encoding")
-            if encoding in self.ENCODERS:
-                body = self.ENCODERS[encoding](body)
+            if req.version == "HTTP/1.0":
+                keep_alive = headers.last("connection", "").lower().strip() == "keep-alive"
+            else:
+                keep_alive = headers.last("connection", "").lower().strip() != "close"
 
-        print "REQ BODY ", body
-        yield bubble(body)
+            if "content-length" in headers:
+                try:
+                    content_length = int(headers.last("content-length"))
+                except ValueError:
+                    content_length = None
+            else:
+                content_length = None
 
-    def response(self):
+            if req.method != "POST":
+                content_length = content_length or 0
+
+            
+            if header_line is not None:
+                while len(body) < content_length or content_length is None:
+                    data = yield
+                    if data is None:
+                        break
+                    body += data
+
+            if "content-encoding" in headers:
+                encoding = headers.last("content-encoding")
+                if encoding in self.ENCODERS:
+                    body = self.ENCODERS[encoding](body)
+
+            yield bubble(body)
+            break
+
+    def response(self, conn):
+        keep_alive = True
         resp = None
         headers = MultiOrderedDict()
         body = ""
+        conn = conn.copy()
 
         @gen.coroutine
         def bubble(data):
-            conn = self.server_conn.copy()
             conn["http_headers"] = headers
             conn["http_response"] = resp
-            yield self.bubble(self.server, data, conn)
+            yield self.bubble(1, conn, data)
 
-        start_line = yield 
-        resp = httputil.parse_response_start_line(start_line.strip())
-        while True:
-            header_line = yield
-            if header_line is None:
-                print "Terminated early?"
-                return
-            if not header_line.strip():
-                break
-            self.parse_header_line(headers, header_line.strip())
-        print "RESPONSE", resp, headers
-        if header_line is not None:
+        while keep_alive:
+            start_line = yield 
+            resp = httputil.parse_response_start_line(start_line.strip())
             while True:
-                data = yield
-                if data is None:
+                header_line = yield
+                if header_line is None:
+                    print "Terminated early?"
+                    return
+                if not header_line.strip():
                     break
-                body += data
+                self.parse_header_line(headers, header_line.strip())
 
-        if "content-encoding" in headers:
-            encoding = headers.last("content-encoding")
-            if encoding in self.ENCODERS:
-                body = self.ENCODERS[encoding](body)
+            if resp.version == "HTTP/1.0":
+                keep_alive = headers.last("connection", "").lower().strip() == "keep-alive"
+            else:
+                keep_alive = headers.last("connection", "").lower().strip() != "close"
 
-        print "RESP BODY", body
-        yield bubble(body)
+            if "content-length" in headers:
+                try:
+                    content_length = int(headers.last("content-length"))
+                except ValueError:
+                    content_length = None
+            else:
+                content_length = None
+
+
+            if header_line is not None:
+                while len(body) < content_length or content_length is None:
+                    data = yield
+                    if data is None:
+                        break
+                    body += data
+
+            if "content-encoding" in headers:
+                encoding = headers.last("content-encoding")
+                if encoding in self.ENCODERS:
+                    body = self.ENCODERS[encoding](body)
+
+            yield bubble(body)
+            break
 
     @gen.coroutine
     def on_close(self, src, conn):
-        if src == self.client:
-            self.req.send(None)
-        elif src == self.server:
-            self.resp.send(None)
-        yield super(HTTPLayer, self).on_close(src)
+        conn_id = conn[self.CONN_ID_KEY]
+        if conn_id in self.connections and src in {0, 1}:
+            self.connections[conn_id][src].send(None)
+        yield self.close_bubble(src, conn)
 
     @gen.coroutine
-    def write(self, dst, data, conn):
+    def write(self, dst, conn, data):
         if "http_request" in conn:
             start_line = "{0.method} {0.path} {0.version}\r\n".format(conn["http_request"])
         elif "http_response" in conn:
@@ -149,7 +182,7 @@ class HTTPLayer(NetLayer):
         else:
             raise Exception("No start line for HTTP")
 
-        yield self.prev_layer.write(dst, start_line, conn)
+        yield self.write_back(dst, conn, start_line)
 
         headers = conn["http_headers"]
         if "content-length" in headers:
@@ -162,7 +195,7 @@ class HTTPLayer(NetLayer):
         for key, value in headers:
             multiline_value = value.replace("\n", "\n ")
             line = "{}: {}\r\n".format(key, multiline_value)
-            yield self.prev_layer.write(dst, line, conn)
+            yield self.write_back(dst, conn, line)
 
-        yield self.prev_layer.write(dst, "\r\n", conn)
-        yield self.prev_layer.write(dst, data, conn)
+        yield self.write_back(dst, conn, "\r\n")
+        yield self.write_back(dst, conn, data)
