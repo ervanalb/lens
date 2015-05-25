@@ -85,7 +85,7 @@ class LineBufferLayer(NetLayer):
     def on_close(self, src, conn):
         if self.buff:
             yield self.bubble(src, self.buff)
-        #yield super(LineBufferLayer, self).on_close(src, conn)
+        yield super(LineBufferLayer, self).on_close(src, conn)
 
 class CloudToButtLayer(NetLayer):
     IN_TYPES = {"TCP App"}
@@ -112,4 +112,61 @@ def connect(prev, layer_list, check_types=False, **global_kwargs):
 # Simple syntatic sugar
 def l(constructor, *args, **kwargs):
     return (constructor, args, kwargs)
+
+class MultiOrderedDict(list):
+    def __init__(self, from_list=None):
+        self.d = {}
+        if from_list is not None:
+            for (k, v) in from_list:
+                self.push(k, v)
+
+    def first(self, key, default=None):
+        key = key.lower()
+        if key in self.d:
+            return self.d[key][0]
+        return default
+
+    def last(self, key, default=None):
+        key = key.lower()
+        if key in self.d:
+            return self.d[key][-1]
+        return default
+
+    def push(self, key, value):
+        self.append((key, value))
+        key = key.lower()
+        if key in self.d:
+            self.d[key].append(value)
+        else:
+            self.d[key] = [value]
+
+    def last_value_append(self, new_part):
+        # This is very specific to HTTP header parsing
+        # Append a string to the last updated value
+        old_key, old_value = self[-1][0]
+        new_value = old_value + new_part
+
+        self[-1] = (old_key, new_value)
+        self.d[old_key.lower()][-1] = new_value
+
+        return key, new_value
+
+    def __contains__(self, key):
+        return key.lower() in self.d
+
+    def set(self, key, new_value, index=0):
+        j = 0
+        key = key.lower()
+        for i, (k, v) in enumerate(self):
+            if k.lower() == key:
+                if j == index:
+                    self[i] = (k, new_value)
+                    break
+                j += 1
+        else:
+            self.push(key, new_value)
+        try:
+            self.d[key][index] = new_value
+        except IndexError:
+            self.d[key][-1] = new_value
 

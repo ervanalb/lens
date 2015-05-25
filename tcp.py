@@ -254,7 +254,7 @@ class TCPLayer(NetLayer):
                 yield self.write_packet(src, conn_id, flags="A")
 
                 # Bubble up data to next layer
-                yield next_layer.on_read(src, data, conn_id)
+                yield next_layer.on_read(src, data, {"tcp_conn": conn_id})
 
 
         if pkt.flags & dpkt.tcp.TH_SYN:
@@ -443,8 +443,8 @@ class TCPLayer(NetLayer):
         yield self.prev_layer.write(dst, pkt, header)
 
     @gen.coroutine
-    def write(self, dst, data, conn_id):
-        dst_conn = self.connections[conn_id][dst]
+    def write(self, dst, data, header):
+        dst_conn = self.connections[header["tcp_conn"]][dst]
         dst_conn["out_buffer"] += data
         yield self.write_packet(dst, conn_id, flags="A")
         
