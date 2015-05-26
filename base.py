@@ -28,6 +28,7 @@ class NetLayer(object):
         else:
             self.children[key] = child
         child.parent = self
+        return child
 
     def resolve_child(self, src, header):
         # Each packet can only resolve to *ONE* child

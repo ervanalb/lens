@@ -37,13 +37,13 @@ class HTTPLayer(NetLayer):
             req.next()
             resp = self.response(conn)
             resp.next()
-            self.connections[conn_id] = (req, resp)
-        
+            self.connections[conn_id] = (resp, req)
+
         if src in {0, 1}:
             self.connections[conn_id][src].send(data)
         else:
             print "Unknown src: {}"
-            yield self.passthru(src, data, conn)
+            yield self.passthru(src, conn, data)
         #yield self.bubble(src, data, conn)
 
 
@@ -67,7 +67,7 @@ class HTTPLayer(NetLayer):
         def bubble(data):
             conn["http_headers"] = headers
             conn["http_request"] = req
-            yield self.bubble(0, conn, data)
+            yield self.bubble(1, conn, data)
 
         while keep_alive:
             req_line = yield 
@@ -123,7 +123,7 @@ class HTTPLayer(NetLayer):
         def bubble(data):
             conn["http_headers"] = headers
             conn["http_response"] = resp
-            yield self.bubble(1, conn, data)
+            yield self.bubble(0, conn, data)
 
         while keep_alive:
             start_line = yield 

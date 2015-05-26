@@ -159,12 +159,11 @@ class TCPLayer(NetLayer):
     def match_child(self, src, header, key):
         return key == header["tcp_conn"][1][1]
 
-    def __init__(self, next_layer=None, prev_layer=None, debug=True):
-        self.next_layer = next_layer # next_layer is a *factory*
-        self.prev_layer = prev_layer
+    def __init__(self, debug=True):
         self.connections = {}
         self.debug = debug
         self.timers = collections.defaultdict(TimestampEstimator)
+        super(TCPLayer, self).__init__()
 
     @gen.coroutine
     def on_read(self, src, header, payload):
@@ -175,7 +174,7 @@ class TCPLayer(NetLayer):
         tcp_opts = dpkt.tcp.parse_opts(pkt.opts)
         tcp_opts_dict = dict(tcp_opts)
 
-        dst = self.route(src)
+        dst = self.route(src, header)
         #conn_id = connection_id(pkt)
         conn_id = connection_id(pkt, header)
 
@@ -322,7 +321,7 @@ class TCPLayer(NetLayer):
                 yield self.write_packet(src, conn_id, flags="A")
 
                 # Bubble up close event
-                yield self.close_bubble(src, {"tcp_conn": conn_id}, data)
+                yield self.close_bubble(src, {"tcp_conn": conn_id})
                 #TODO: prune connection obj
 
         elif pkt.flags & dpkt.tcp.TH_ACK:
@@ -340,7 +339,7 @@ class TCPLayer(NetLayer):
                 src_conn["state"] = "CLOSED"
 
                 # Bubble up close event
-                yield self.close_bubble(src, {"tcp_conn": conn_id}, data)
+                yield self.close_bubble(src, {"tcp_conn": conn_id})
                 #TODO: prune connection obj
 
 
@@ -359,7 +358,7 @@ class TCPLayer(NetLayer):
                     yield self.passthru(src, header, payload)
 
                 # Bubble up close event
-                yield next_layer.on_close(src, conn_id)
+                yield self.close_bubble(src, header)
                 #TODO: prune connection obj
             else:
                 # This isn't on a actively modified connection, passthru
@@ -431,5 +430,5 @@ class TCPLayer(NetLayer):
     def write(self, dst, header, data):
         dst_conn = self.connections[header["tcp_conn"]][dst]
         dst_conn["out_buffer"] += data
-        yield self.write_packet(dst, conn_id, flags="A")
+        yield self.write_packet(dst, header["tcp_conn"], flags="A")
         

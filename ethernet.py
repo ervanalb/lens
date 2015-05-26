@@ -47,7 +47,7 @@ class LinkLayer(object):
                     raise
                 return
             if self.child:
-                yield self.child.on_read(src, data[:-2])
+                yield self.child.on_read(src, {}, data[:-2])
 
     @gen.coroutine
     def write(self, dst, header, data):
@@ -57,6 +57,8 @@ class LinkLayer(object):
 class EthernetLayer(NetLayer):
     IN_TYPES = {"Raw"}
     OUT_TYPE = "Ethernet"
+
+    SINGLE_CHILD = False
 
     @staticmethod
     def pretty_mac(mac):
