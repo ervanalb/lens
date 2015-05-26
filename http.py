@@ -1,6 +1,6 @@
 import zlib
 
-from base import NetLayer, MultiOrderedDict
+from base import NetLayer, MultiOrderedDict, PipeLayer
 from tornado import gen, httputil
 
 
@@ -199,3 +199,6 @@ class HTTPLayer(NetLayer):
 
         yield self.write_back(dst, conn, "\r\n")
         yield self.write_back(dst, conn, data)
+
+class ImageFlipLayer(PipeLayer):
+    COMMAND = ["convert", "-flip", "-", "-"]

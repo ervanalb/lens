@@ -1,4 +1,5 @@
 import tornado.gen as gen
+import subprocess
 
 class NetLayer(object):
     routing = {
@@ -206,3 +207,34 @@ class MultiOrderedDict(list):
         except IndexError:
             self.d[key][-1] = new_value
 
+class PipeLayer(NetLayer):
+    SINGLE_CHILD = True
+    COMMAND = ["cat", "-"]
+    CONN_ID_KEY = "tcp_conn"
+    
+    def __init__(self):
+        super(PipeLayer, self).__init__()
+        self.sps = {}
+
+    @gen.coroutine
+    def write(self, dst, header, payload):
+        conn_id = header[self.CONN_ID_KEY]
+        if conn_id not in self.sps:
+            self.sps[conn_id] = subprocess.Popen(self.COMMAND, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+
+        self.sps[conn_id].stdin.write(payload)
+
+    @gen.coroutine
+    def on_close(self, src, header):
+        conn_id = header[self.CONN_ID_KEY]
+        if conn_id not in self.sps:
+            return
+
+        self.sps[conn_id].stdin.close()
+        output = self.sps[conn_id].communicate()
+        self.sps[conn_id].kill()
+        del self.sps[conn_id]
+
+        yield self.passthru(src, header, output)
+
+        
