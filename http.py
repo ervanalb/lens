@@ -37,7 +37,10 @@ class HTTPLayer(NetLayer):
             req.next()
             resp = self.response(conn)
             resp.next()
-            self.connections[conn_id] = (resp, req)
+            if src == 0:
+                self.connections[conn_id] = (req, resp)
+            else:
+                self.connections[conn_id] = (resp, req)
 
         if src in {0, 1}:
             self.connections[conn_id][src].send(data)
