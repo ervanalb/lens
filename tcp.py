@@ -157,7 +157,7 @@ class TCPLayer(NetLayer):
     SINGLE_CHILD = False
 
     def match_child(self, src, header, key):
-        return key == header["tcp_conn"][1][1]
+        return key == header["tcp_conn"][1][1] or key == header["tcp_conn"][0][1]
 
     def __init__(self, debug=True):
         self.connections = {}
@@ -231,6 +231,7 @@ class TCPLayer(NetLayer):
         if tcp_has_payload(pkt):
             if src_conn.get("state") == "ESTABLISHED":
                 data = pkt.data
+                src_conn["payload_sizes"][len(data)] += 1
                 src_conn["in_buffer"] += data
                 src_conn["ack"] += len(data)
 
@@ -254,6 +255,12 @@ class TCPLayer(NetLayer):
             dst_conn["out_buffer"] = ""
             dst_conn["in_buffer"] = ""
             dst_conn["unacked"] = []
+
+            # min_payload can be overriden by write()'ing None
+            dst_conn["min_payload"] = 400
+            # max_payload could probably be pushed up a little... #TODO
+            dst_conn["max_payload"] = 1400
+            dst_conn["payload_sizes"] = collections.Counter()
 
             dst_conn["seq"] = pkt.seq
             src_conn["ack"] = pkt.seq + 1
@@ -375,9 +382,14 @@ class TCPLayer(NetLayer):
         payload = None
         seq = conn["seq"]
         ack = conn.get("ack", 0)
+        payload_size = conn["max_payload"]
+
+        #TODO
+        common_payload_sizes = conn["payload_sizes"].items()
+            
         if conn["out_buffer"]:
-            payload = conn["out_buffer"][:1400]
-            conn["out_buffer"] = conn["out_buffer"][1400:]
+            payload = conn["out_buffer"][:payload_size]
+            conn["out_buffer"] = conn["out_buffer"][payload_size:]
             flags += "P"
             conn["unacked"].append((seq, payload))
             conn["seq"] += len(payload)
@@ -402,6 +414,7 @@ class TCPLayer(NetLayer):
         pkt.opts = tcp_opts
         pkt.off += len(tcp_opts) / 4
         if payload is not None:
+            print "writing TCP packet size", len(payload), conn["seq"], dst
             pkt.data = payload
 
         if self.debug:
@@ -429,6 +442,11 @@ class TCPLayer(NetLayer):
     @gen.coroutine
     def write(self, dst, header, data):
         dst_conn = self.connections[header["tcp_conn"]][dst]
-        dst_conn["out_buffer"] += data
-        yield self.write_packet(dst, header["tcp_conn"], flags="A")
+        if data is not None:
+            dst_conn["out_buffer"] += data
+            while len(dst_conn["out_buffer"]) > dst_conn["min_payload"]:
+                yield self.write_packet(dst, header["tcp_conn"], flags="A")
+        else:
+            while len(dst_conn["out_buffer"]) > 0:
+                yield self.write_packet(dst, header["tcp_conn"], flags="A")
         

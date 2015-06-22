@@ -40,7 +40,8 @@ if __name__ == "__main__":
     ssh_filter_layer.register_child(tcp_layer)
 
     http_lbf_layer = base.LineBufferLayer()
-    tcp_layer.register_child(http_lbf_layer, 8080)
+    #tcp_layer.register_child(http_lbf_layer, 8000)
+    tcp_layer.register_child(http_lbf_layer, 80)
 
     http_layer = http.HTTPLayer()
     http_lbf_layer.register_child(http_layer)
@@ -50,6 +51,9 @@ if __name__ == "__main__":
 
     img_layer = http.ImageFlipLayer()
     http_layer.register_child(img_layer, "image")
+
+    xss_layer = http.XSSInjectorLayer()
+    http_layer.register_child(xss_layer, "javascript")
 
     #video_layer = udp.UDPVideoLayer()
     #udp_layer.register_child(video_layer)

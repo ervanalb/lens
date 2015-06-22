@@ -26,17 +26,24 @@ class HTTPLayer(NetLayer):
         self.connections = {}
 
     def match_child(self, src, header, key):
+        if "http_headers" not in header:
+            return False
         return key in header["http_headers"].last("content-type", "")
 
     @gen.coroutine
     def on_read(self, src, conn, data):
         conn_id = conn[self.CONN_ID_KEY]
         if conn_id not in self.connections:
-            req = self.request(conn)
+            if src == 1:
+                dst = 0
+            else:
+                dst = 1
+            req = self.request(conn, dst, src)
             req.next()
-            resp = self.response(conn)
+            resp = self.response(conn, src, dst)
             resp.next()
-            self.connections[conn_id] = (resp, req)
+            print "Establishing connection, src=", src
+            self.connections[conn_id] = {src: req, dst: resp}
 
         if src in {0, 1}:
             self.connections[conn_id][src].send(data)
@@ -55,7 +62,7 @@ class HTTPLayer(NetLayer):
             name, value = line.split(":", 1)
             hdict.push(name, value.strip())
 
-    def request(self, conn):
+    def request(self, conn, src, dst):
         keep_alive = True
         req = None
         headers = MultiOrderedDict()
@@ -66,7 +73,7 @@ class HTTPLayer(NetLayer):
         def bubble(data):
             conn["http_headers"] = headers
             conn["http_request"] = req
-            yield self.bubble(1, conn, data)
+            yield self.bubble(dst, conn, data)
 
         while keep_alive:
             req_line = yield 
@@ -97,6 +104,9 @@ class HTTPLayer(NetLayer):
 
             
             if header_line is not None:
+                #body += conn["lbl_buffers"][dst]
+                #conn["lbl_buffers"][dst] = ""
+                conn["lbl_disable"](dst)
                 while len(body) < content_length or content_length is None:
                     data = yield
                     if data is None:
@@ -108,10 +118,11 @@ class HTTPLayer(NetLayer):
                 if encoding in self.ENCODERS:
                     body = self.ENCODERS[encoding](body)
 
+            conn["lbl_enable"](dst)
             yield bubble(body)
             break
 
-    def response(self, conn):
+    def response(self, conn, src, dst):
         keep_alive = True
         resp = None
         headers = MultiOrderedDict()
@@ -122,7 +133,7 @@ class HTTPLayer(NetLayer):
         def bubble(data):
             conn["http_headers"] = headers
             conn["http_response"] = resp
-            yield self.bubble(0, conn, data)
+            yield self.bubble(dst, conn, data)
 
         while keep_alive:
             start_line = yield 
@@ -151,6 +162,9 @@ class HTTPLayer(NetLayer):
 
 
             if header_line is not None:
+                #body += conn["lbl_buffers"][dst]
+                #conn["lbl_buffers"][dst] = ""
+                conn["lbl_disable"](dst)
                 while len(body) < content_length or content_length is None:
                     data = yield
                     if data is None:
@@ -162,6 +176,7 @@ class HTTPLayer(NetLayer):
                 if encoding in self.ENCODERS:
                     body = self.ENCODERS[encoding](body)
 
+            conn["lbl_enable"](dst)
             yield bubble(body)
             break
 
@@ -194,10 +209,21 @@ class HTTPLayer(NetLayer):
         for key, value in headers:
             multiline_value = value.replace("\n", "\n ")
             line = "{}: {}\r\n".format(key, multiline_value)
+            print "Writing header:", line
             yield self.write_back(dst, conn, line)
 
         yield self.write_back(dst, conn, "\r\n")
         yield self.write_back(dst, conn, data)
+        yield self.write_back(dst, conn, None)
 
 class ImageFlipLayer(PipeLayer):
     COMMAND = ["convert", "-flip", "-", "-"]
+
+class XSSInjectorLayer(NetLayer):
+    SINGLE_CHILD = True
+
+    @gen.coroutine
+    def write(self, dst, header, payload):
+        output = payload + "\n\nalert('xss');"
+        yield self.write_back(dst, header, output)
+

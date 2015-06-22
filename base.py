@@ -100,31 +100,62 @@ class NetLayer(object):
 class LineBufferLayer(NetLayer):
     # Buffers incoming data line-by-line
     SINGLE_CHILD = True
+    CONN_ID_KEY = "tcp_conn"
 
     def __init__(self, *args, **kwargs):
         super(LineBufferLayer, self).__init__(*args, **kwargs)
-        self.buff = ""
+        self.buffers = {}
+        self.enabled = {}
+        self.closed = {}
         
     @gen.coroutine
     def on_read(self, src, header, data):
+        conn_id = header[self.CONN_ID_KEY]
+        if conn_id not in self.buffers:
+            self.buffers[conn_id] = {0: "", 1: ""}
+            self.enabled[conn_id] = {0: True, 1: True}
+            self.closed[conn_id] = {0: False, 1: False}
+
+        def lbl_enable(s):
+            self.enabled[conn_id][s] = True
+        def lbl_disable(s):
+            self.enabled[conn_id][s] = False
+
+        header["lbl_enable"] = lbl_enable
+        header["lbl_disable"] = lbl_disable
+
         if data is None:
-            buff = self.buff
-            self.buff = ""
+            buff = self.buffers[conn_id][src]
+            self.buffers[conn_id][src] = ""
             yield self.bubble(src, header, buff)
         else:
-            self.buff += data
-            if '\n' in self.buff:
-                lines = self.buff.split('\n')
-                self.buff = lines[-1]
-                for line in lines[:-1]:
+            #print "> recvd data from ", src, len(data), len(self.buffers[conn_id][src])
+            self.buffers[conn_id][src] += data
+            if self.enabled[conn_id][src]:
+                while '\n' in self.buffers[conn_id][src]:
+                    line, _newline, self.buffers[conn_id][src] = self.buffers[conn_id][src].partition('\n')
+                    #print ">>>", line
                     yield self.bubble(src, header, line + "\n")
-            else:
-                pass
+
+            if not self.enabled[conn_id][src]:
+                buff = self.buffers[conn_id][src]
+                self.buffers[conn_id][src] = ""
+                yield self.bubble(src, header, buff)
+
 
     @gen.coroutine
     def on_close(self, src, header):
-        if self.buff:
-            yield self.bubble(src, header, self.buff)
+        conn_id = header[self.CONN_ID_KEY]
+        if conn_id in self.buffers:
+            buff = self.buffers[conn_id][src]
+            self.buffers[conn_id][src] = ""
+            yield self.bubble(src, header, buff)
+
+            self.closed[conn_id][src] = True
+            if all(self.closed[conn_id]): 
+                del self.closed[conn_id]
+                del self.enabled[conn_id]
+                del self.buffers[conn_id]
         yield self.close_bubble(src, header)
 
 class CloudToButtLayer(NetLayer):
@@ -224,7 +255,12 @@ class PipeLayer(NetLayer):
         if conn_id not in self.sps:
             self.sps[conn_id] = subprocess.Popen(self.COMMAND, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 
-        self.sps[conn_id].stdin.write(payload)
+        #self.sps[conn_id].stdin.write(payload)
+        output, _stderr = self.sps[conn_id].communicate(input=payload)
+        print "Pipe stderr: ", _stderr
+        print "PIPE<", len(output)
+        del self.sps[conn_id]
+        yield self.write_back(dst, header, output)
 
     @gen.coroutine
     def on_close(self, src, header):
