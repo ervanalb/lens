@@ -48,6 +48,6 @@ if __name__ == "__main__":
     c2b_layer = base.CloudToButtLayer()
     http_layer.register_child(c2b_layer, "text")
 
-    file_layer.on_read(0, None, None)
     file_layer.on_read(1, None, None)
+    file_layer.on_read(0, None, None)
 

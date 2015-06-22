@@ -1,0 +1,8 @@
+build/
+dist/
+funclist
+*.obj
+*.mk
+*.bash
+*.properties
+nbproject/private/
