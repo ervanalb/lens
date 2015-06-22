@@ -114,8 +114,8 @@ def eth_callback(layer, src, fd, events):
             return
 
 def build_ethernet_loop():
-    alice_nic="enp0s20u3u1"
-    bob_nic="enp0s20u3u2"
+    alice_nic="enp0s20u1"
+    bob_nic="enp0s20u2"
 
     alice_sock = attach(alice_nic)
     bob_sock = attach(bob_nic)

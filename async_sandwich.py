@@ -48,8 +48,11 @@ if __name__ == "__main__":
     c2b_layer = base.CloudToButtLayer()
     http_layer.register_child(c2b_layer, "text")
 
-    video_layer = udp.UDPVideoLayer()
-    udp_layer.register_child(video_layer)
+    img_layer = http.ImageFlipLayer()
+    http_layer.register_child(img_layer, "image")
+
+    #video_layer = udp.UDPVideoLayer()
+    #udp_layer.register_child(video_layer)
 
     try:
         loop.start()

@@ -219,6 +219,7 @@ class PipeLayer(NetLayer):
 
     @gen.coroutine
     def write(self, dst, header, payload):
+        print "PIPE>", len(payload)
         conn_id = header[self.CONN_ID_KEY]
         if conn_id not in self.sps:
             self.sps[conn_id] = subprocess.Popen(self.COMMAND, stdin=subprocess.PIPE, stdout=subprocess.PIPE)

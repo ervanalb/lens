@@ -19,6 +19,8 @@ CTRL_WRITE_REG_8 = 0x21
 CTRL_READ_REG_16 = 0x22
 CTRL_SET_LED = 0x23
 CTRL_SET_RELAYS = 0x24
+CTRL_SET_FAULT = 0x25 #Wvalue = state that relays should go into, same as SET_RELAYS
+CTRL_HEARTBEAT = 0x26 #Wvalue = time in ticks
 
 class Tap:
     def __init__(self):
@@ -46,12 +48,19 @@ class Tap:
     def set_relays(self,relays):
         assert self.dev.ctrl_transfer(VENDOR_WRITE,CTRL_SET_RELAYS,relays,0)==0
 
+    def set_fault(self,relays):
+        assert self.dev.ctrl_transfer(VENDOR_WRITE,CTRL_SET_FAULT,relays,0)==0
+
+    def heartbeat(self, ticks):
+        assert self.dev.ctrl_transfer(VENDOR_WRITE,CTRL_HEARTBEAT, ticks, 0)==0
+
     def passthru(self):
         self.set_relays(0x5555)
         self.set_led(False)
 
     def mitm(self):
         self.set_relays(0xAAAA)
+        self.set_fault(0x5555)
         self.set_led(True)
 
 if __name__=='__main__':

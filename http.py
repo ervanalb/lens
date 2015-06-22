@@ -26,8 +26,7 @@ class HTTPLayer(NetLayer):
         self.connections = {}
 
     def match_child(self, src, header, key):
-        #TODO
-        return True
+        return key in header["http_headers"].last("content-type", "")
 
     @gen.coroutine
     def on_read(self, src, conn, data):
