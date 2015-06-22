@@ -155,6 +155,8 @@ class TCPLayer(NetLayer):
     IN_TYPES = {"IP"}
     OUT_TYPE = "TCP"
     SINGLE_CHILD = False
+    DEFAULT_MSS = 536
+    MAX_MSS = 1400
 
     def match_child(self, src, header, key):
         if "tcp_conn" not in header:
@@ -253,23 +255,35 @@ class TCPLayer(NetLayer):
             dst_conn["sport"] = pkt.sport
             dst_conn["dport"] = pkt.dport
             dst_conn["win"] = pkt.win
+            dst_conn["syn_options"] = {}
 
             dst_conn["out_buffer"] = ""
             dst_conn["in_buffer"] = ""
             dst_conn["unacked"] = []
 
-            # min_payload can be overriden by write()'ing None
-            dst_conn["min_payload"] = 1
-            # max_payload could probably be pushed up a little... #TODO
-            dst_conn["max_payload"] = 1400
-            dst_conn["payload_sizes"] = collections.Counter()
-
             dst_conn["seq"] = pkt.seq
             src_conn["ack"] = pkt.seq + 1
+
+            dst_conn["window_scale"] = 0
 
             # For relative sequence nums
             dst_conn["seq_start"] = pkt.seq 
             src_conn["ack_start"] = pkt.seq
+
+            # min_payload can be overriden by write()'ing None
+            src_conn["min_segment_size"] = 1
+            src_conn["max_segment_size"] = self.DEFAULT_MSS
+            src_conn["payload_sizes"] = collections.Counter()
+
+            if dpkt.tcp.TCP_OPT_MSS in tcp_opts_dict:
+                mss_request = struct.unpack('!H', tcp_opts_dict[dpkt.tcp.TCP_OPT_MSS])
+                src_conn["max_segment_size"] = max(1, min(mss_request, self.MAX_MSS))
+                dst_conn["syn_options"][dpkt.tcp.TCP_OPT_MSS] = tcp_opts_dict[dpkt.tcp.TCP_OPT_MSS]
+
+            if dpkt.tcp.TCP_OPT_WSCALE in tcp_opts_dict:
+                wscale = struct.unpack('!B', tcp_opts_dict[dpkt.tcp.TCP_OPT_WSCALE])
+                src_conn["window_scale"] = wscale
+                #dst_conn["syn_options"][dpkt.tcp.TCP_OPT_WSCALE] = tcp_opts_dict[dpkt.tcp.TCP_OPT_WSCALE]
 
 
 # A           | D_sender    | D_reciever  | B
@@ -384,11 +398,8 @@ class TCPLayer(NetLayer):
         payload = None
         seq = conn["seq"]
         ack = conn.get("ack", 0)
-        payload_size = conn["max_payload"]
+        payload_size = conn.get("max_segment_size", self.DEFAULT_MSS)
 
-        #TODO
-        common_payload_sizes = conn["payload_sizes"].items()
-            
         if conn["out_buffer"]:
             payload = conn["out_buffer"][:payload_size]
             conn["out_buffer"] = conn["out_buffer"][payload_size:]
@@ -402,9 +413,12 @@ class TCPLayer(NetLayer):
             estimated_ts_val = conn.get("last_ts_val", 0)
         ts_val = struct.pack("!I", estimated_ts_val)
         ts_ecr = struct.pack("!I", conn.get("ts_ecr", 0))
-        tcp_opts = tcp_dump_opts([
+        tcp_opts_list = [
             (dpkt.tcp.TCP_OPT_TIMESTAMP, ts_val + ts_ecr)
-        ])
+        ]
+        if "S" in flags:
+            tcp_opts_list += conn["syn_options"].items()
+        tcp_opts = tcp_dump_opts(tcp_opts_list)
         pkt = dpkt.tcp.TCP(
             sport=conn["sport"],
             dport=conn["dport"],
@@ -445,7 +459,7 @@ class TCPLayer(NetLayer):
         dst_conn = self.connections[header["tcp_conn"]][dst]
         if data is not None:
             dst_conn["out_buffer"] += data
-            while len(dst_conn["out_buffer"]) >= dst_conn["min_payload"]:
+            while len(dst_conn["out_buffer"]) >= dst_conn.get("min_payload", 1):
                 yield self.write_packet(dst, header["tcp_conn"], flags="A")
         else:
             while len(dst_conn["out_buffer"]) > 0:

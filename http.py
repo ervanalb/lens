@@ -67,10 +67,15 @@ class HTTPLayer(NetLayer):
         conn = conn.copy()
 
         req_line = yield 
-        while keep_alive:
+        while keep_alive and req_line is not None:
             body = ""
             headers = MultiOrderedDict()
-            req = httputil.parse_request_start_line(req_line.strip())
+            try:
+                req = httputil.parse_request_start_line(req_line.strip())
+            except httputil.HTTPInputError:
+                print "Malformed request start line: '%s'" % req_line
+                req_line = yield
+                continue
             while True:
                 header_line = yield
                 if header_line is None:
@@ -115,7 +120,6 @@ class HTTPLayer(NetLayer):
             conn["http_headers"] = headers
             conn["http_request"] = req
             req_line = yield self.bubble(dst, conn, body)
-            print "req_line 2:", req_line
 
     def response(self, conn, src, dst):
         keep_alive = True
@@ -123,10 +127,15 @@ class HTTPLayer(NetLayer):
         conn = conn.copy()
 
         start_line = yield 
-        while keep_alive:
+        while keep_alive and start_line is not None:
             body = ""
             headers = MultiOrderedDict()
-            resp = httputil.parse_response_start_line(start_line.strip())
+            try:
+                resp = httputil.parse_response_start_line(start_line.strip())
+            except httputil.HTTPInputError:
+                print "Malformed response start line: '%s'" % start_line
+                start_line = yield
+                continue
             while True:
                 header_line = yield
                 if header_line is None:
@@ -196,12 +205,18 @@ class HTTPLayer(NetLayer):
             encoding = headers.last("content-encoding")
             if encoding in self.ENCODERS:
                 data = self.ENCODERS[encoding](data)
+        # Remove caching headers
+        headers.remove("if-none-match")
+        headers.remove("if-modified-since")
+        headers.remove("etag")
 
         for key, value in headers:
             multiline_value = value.replace("\n", "\n ")
             line = "{}: {}\r\n".format(key, multiline_value)
             output += line
             #yield self.write_back(dst, conn, line)
+
+        print "Headers:", output
 
         #yield self.write_back(dst, conn, "\r\n")
         #yield self.write_back(dst, conn, data)

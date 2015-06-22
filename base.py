@@ -134,7 +134,7 @@ class LineBufferLayer(NetLayer):
             if self.enabled[conn_id][src]:
                 while '\n' in self.buffers[conn_id][src]:
                     line, _newline, self.buffers[conn_id][src] = self.buffers[conn_id][src].partition('\n')
-                    #print ">>>", line
+                    #print ">>>", line1460
                     yield self.bubble(src, header, line + "\n")
 
             if not self.enabled[conn_id][src]:
@@ -188,6 +188,15 @@ class MultiOrderedDict(list):
         if from_list is not None:
             for (k, v) in from_list:
                 self.push(k, v)
+
+    def remove(self, key):
+        key = key.lower()
+        if key in self.d:
+            print "Removing", key, ":", self.d[key]
+            del self.d[key]
+            for (i, (k, v)) in enumerate(self):
+                if k.lower() == key:
+                    self.pop(i)
 
     def first(self, key, default=None):
         key = key.lower()

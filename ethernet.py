@@ -9,6 +9,7 @@ import functools
 import select
 import socket
 import subprocess
+import sys
 
 import tornado.ioloop
 import tornado.iostream
@@ -51,7 +52,11 @@ class LinkLayer(object):
 
     @gen.coroutine
     def write(self, dst, header, data):
-        yield self.streams[dst].write(data)
+        try:
+            yield self.streams[dst].write(data)
+        except tornado.iostream.StreamClosedError:
+            print "Link Layer stream closed; exiting..."
+            sys.exit(-1)
 
 
 class EthernetLayer(NetLayer):
