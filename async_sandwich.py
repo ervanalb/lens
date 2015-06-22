@@ -40,7 +40,7 @@ if __name__ == "__main__":
     ssh_filter_layer.register_child(tcp_layer)
 
     http_lbf_layer = base.LineBufferLayer()
-    #tcp_layer.register_child(http_lbf_layer, 8000)
+    tcp_layer.register_child(http_lbf_layer, 8000)
     tcp_layer.register_child(http_lbf_layer, 80)
 
     http_layer = http.HTTPLayer()

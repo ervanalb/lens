@@ -157,6 +157,8 @@ class TCPLayer(NetLayer):
     SINGLE_CHILD = False
 
     def match_child(self, src, header, key):
+        if "tcp_conn" not in header:
+            return False
         return key == header["tcp_conn"][1][1] or key == header["tcp_conn"][0][1]
 
     def __init__(self, debug=True):
@@ -257,7 +259,7 @@ class TCPLayer(NetLayer):
             dst_conn["unacked"] = []
 
             # min_payload can be overriden by write()'ing None
-            dst_conn["min_payload"] = 400
+            dst_conn["min_payload"] = 1
             # max_payload could probably be pushed up a little... #TODO
             dst_conn["max_payload"] = 1400
             dst_conn["payload_sizes"] = collections.Counter()
@@ -414,7 +416,6 @@ class TCPLayer(NetLayer):
         pkt.opts = tcp_opts
         pkt.off += len(tcp_opts) / 4
         if payload is not None:
-            print "writing TCP packet size", len(payload), conn["seq"], dst
             pkt.data = payload
 
         if self.debug:
@@ -444,7 +445,7 @@ class TCPLayer(NetLayer):
         dst_conn = self.connections[header["tcp_conn"]][dst]
         if data is not None:
             dst_conn["out_buffer"] += data
-            while len(dst_conn["out_buffer"]) > dst_conn["min_payload"]:
+            while len(dst_conn["out_buffer"]) >= dst_conn["min_payload"]:
                 yield self.write_packet(dst, header["tcp_conn"], flags="A")
         else:
             while len(dst_conn["out_buffer"]) > 0:

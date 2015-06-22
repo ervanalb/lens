@@ -42,7 +42,6 @@ class HTTPLayer(NetLayer):
             req.next()
             resp = self.response(conn, src, dst)
             resp.next()
-            print "Establishing connection, src=", src
             self.connections[conn_id] = {src: req, dst: resp}
 
         if src in {0, 1}:
@@ -65,18 +64,12 @@ class HTTPLayer(NetLayer):
     def request(self, conn, src, dst):
         keep_alive = True
         req = None
-        headers = MultiOrderedDict()
-        body = ""
         conn = conn.copy()
 
-        @gen.coroutine
-        def bubble(data):
-            conn["http_headers"] = headers
-            conn["http_request"] = req
-            yield self.bubble(dst, conn, data)
-
+        req_line = yield 
         while keep_alive:
-            req_line = yield 
+            body = ""
+            headers = MultiOrderedDict()
             req = httputil.parse_request_start_line(req_line.strip())
             while True:
                 header_line = yield
@@ -119,24 +112,20 @@ class HTTPLayer(NetLayer):
                     body = self.ENCODERS[encoding](body)
 
             conn["lbl_enable"](dst)
-            yield bubble(body)
-            break
+            conn["http_headers"] = headers
+            conn["http_request"] = req
+            req_line = yield self.bubble(dst, conn, body)
+            print "req_line 2:", req_line
 
     def response(self, conn, src, dst):
         keep_alive = True
         resp = None
-        headers = MultiOrderedDict()
-        body = ""
         conn = conn.copy()
 
-        @gen.coroutine
-        def bubble(data):
-            conn["http_headers"] = headers
-            conn["http_response"] = resp
-            yield self.bubble(dst, conn, data)
-
+        start_line = yield 
         while keep_alive:
-            start_line = yield 
+            body = ""
+            headers = MultiOrderedDict()
             resp = httputil.parse_response_start_line(start_line.strip())
             while True:
                 header_line = yield
@@ -177,8 +166,9 @@ class HTTPLayer(NetLayer):
                     body = self.ENCODERS[encoding](body)
 
             conn["lbl_enable"](dst)
-            yield bubble(body)
-            break
+            conn["http_headers"] = headers
+            conn["http_response"] = resp
+            start_line = yield self.bubble(dst, conn, body)
 
     @gen.coroutine
     def on_close(self, src, conn):
@@ -196,7 +186,8 @@ class HTTPLayer(NetLayer):
         else:
             raise Exception("No start line for HTTP")
 
-        yield self.write_back(dst, conn, start_line)
+        output = start_line
+        #yield self.write_back(dst, conn, start_line)
 
         headers = conn["http_headers"]
         if "content-length" in headers:
@@ -209,12 +200,17 @@ class HTTPLayer(NetLayer):
         for key, value in headers:
             multiline_value = value.replace("\n", "\n ")
             line = "{}: {}\r\n".format(key, multiline_value)
-            print "Writing header:", line
-            yield self.write_back(dst, conn, line)
+            output += line
+            #yield self.write_back(dst, conn, line)
 
-        yield self.write_back(dst, conn, "\r\n")
-        yield self.write_back(dst, conn, data)
-        yield self.write_back(dst, conn, None)
+        #yield self.write_back(dst, conn, "\r\n")
+        #yield self.write_back(dst, conn, data)
+
+        output += "\r\n"
+        output += data
+        yield self.write_back(dst, conn, output)
+        #yield self.write_back(dst, conn, None)
+
 
 class ImageFlipLayer(PipeLayer):
     COMMAND = ["convert", "-flip", "-", "-"]
@@ -224,6 +220,6 @@ class XSSInjectorLayer(NetLayer):
 
     @gen.coroutine
     def write(self, dst, header, payload):
-        output = payload + "\n\nalert('xss');"
+        output = payload + "\nalert('xss');\n"
         yield self.write_back(dst, header, output)
 
