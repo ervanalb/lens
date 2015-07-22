@@ -1,13 +1,11 @@
-update=Tue 20 Jan 2015 09:37:11 PM EST
+update=Thu 21 May 2015 11:05:13 PM EDT
 version=1
-last_client=pcbnew
+last_client=kicad
 [cvpcb]
 version=1
 NetIExt=net
 [cvpcb/libraries]
 EquName1=devcms
-[general]
-version=1
 [eeschema]
 version=1
 LibDir=
@@ -87,3 +85,5 @@ LibName15=pga_sockets
 LibName16=valves
 LibName17=bb
 LibName18=custom
+[general]
+version=1
