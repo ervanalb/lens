@@ -22,6 +22,20 @@ CTRL_SET_RELAYS = 0x24
 CTRL_SET_FAULT = 0x25 #Wvalue = state that relays should go into, same as SET_RELAYS
 CTRL_HEARTBEAT = 0x26 #Wvalue = time in ticks
 
+class FakeTap:
+    def set_led(self,led):
+        pass
+
+    def heartbeat(self, ticks):
+        pass
+
+    def passthru(self):
+        print "Set fake tap to passthru mode"
+
+    def mitm(self):
+        print "Set fake tap to mitm mode"
+
+
 class Tap:
     def __init__(self):
         self.dev=usb.core.find(idVendor=VENDOR_ID, idProduct=PRODUCT_ID)

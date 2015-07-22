@@ -15,13 +15,15 @@ import tornado.gen as gen
 from base import l, connect, NetLayer
 
 if __name__ == "__main__":
-    addr = "18.238.0.97"
+    addr = "192.168.0.15"
+    alice_nic = "enp0s20u3"
+    bob_nic =   "enp0s20u4"
     #addr = "192.168.1.10"
     print "Capturing traffic to:", addr
 
-    tap = driver.Tap()
+    tap = driver.FakeTap()
 
-    loop, link_layer = ethernet.build_ethernet_loop()
+    loop, link_layer = ethernet.build_ethernet_loop(alice_nic, bob_nic)
     tap.mitm()
 
     eth_layer = ethernet.EthernetLayer()
