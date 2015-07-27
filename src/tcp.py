@@ -125,6 +125,7 @@ class TCPPassthruLayer(NetLayer):
     SINGLE_CHILD = True
 
     def __init__(self, ports=None):
+        super(TCPPassthruLayer, self).__init__()
         if ports is None:
             ports = []
         self.ports = ports
