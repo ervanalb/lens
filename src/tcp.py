@@ -279,12 +279,12 @@ class TCPLayer(NetLayer):
             if dpkt.tcp.TCP_OPT_MSS in tcp_opts_dict:
                 mss_request = struct.unpack('!H', tcp_opts_dict[dpkt.tcp.TCP_OPT_MSS])
                 src_conn["max_segment_size"] = max(1, min(mss_request, self.MAX_MSS))
-                dst_conn["syn_options"][dpkt.tcp.TCP_OPT_MSS] = tcp_opts_dict[dpkt.tcp.TCP_OPT_MSS]
+                dst_conn["syn_options"][dpkt.tcp.TCP_OPT_MSS] = struct.pack("!H", src_conn["max_segment_size"])
 
             if dpkt.tcp.TCP_OPT_WSCALE in tcp_opts_dict:
                 wscale = struct.unpack('!B', tcp_opts_dict[dpkt.tcp.TCP_OPT_WSCALE])
                 src_conn["window_scale"] = wscale
-                #dst_conn["syn_options"][dpkt.tcp.TCP_OPT_WSCALE] = tcp_opts_dict[dpkt.tcp.TCP_OPT_WSCALE]
+                dst_conn["syn_options"][dpkt.tcp.TCP_OPT_WSCALE] = tcp_opts_dict[dpkt.tcp.TCP_OPT_WSCALE]
 
 
 # A           | D_sender    | D_reciever  | B
