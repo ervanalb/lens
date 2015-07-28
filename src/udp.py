@@ -34,7 +34,7 @@ class UDPLayer(NetLayer):
         pkt.ulen = len(pkt)
 
         # Return dpkt.udp.UDP instance so IP layer can calc checksum
-        yield self.write_back(dst, header, data)
+        yield self.write_back(dst, header, pkt)
 
 
 class UDPAppLayer(NetLayer):

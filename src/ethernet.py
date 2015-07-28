@@ -32,6 +32,7 @@ class LinkLayer(object):
 
     def __init__(self, streams):
         self.streams = streams
+        self.child = None
 
     def register_child(self, child):
         self.child = child
@@ -47,8 +48,11 @@ class LinkLayer(object):
                 if e.args[0] not in (errno.EWOULDBLOCK, errno.EAGAIN):
                     raise
                 return
-            if self.child:
+            if self.child is not None:
                 yield self.child.on_read(src, {}, data[:-2])
+            else:
+                dst = 1 - src # XXX
+                yield self.write(dst, {}, data[:-2])
 
     @gen.coroutine
     def write(self, dst, header, data):
