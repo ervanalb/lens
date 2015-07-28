@@ -28,8 +28,12 @@ class NetLayer(object):
 
     def register_child(self, child, key=None):
         if self.SINGLE_CHILD:
+            if key is not None:
+                print "Warning: specified key %s for single child %s" % (key, str(self))
             self.child = child
         else:
+            if key is None:
+                print "Warning: specified None key for child %s" % str(self)
             self.children[key] = child
         child.parent = self
         return child

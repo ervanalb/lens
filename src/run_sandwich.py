@@ -16,7 +16,7 @@ import tornado.gen as gen
 from base import l, connect, NetLayer
 
 if __name__ == "__main__":
-    addr = "192.168.0.15"
+    addr = "192.168.1.10"
     alice_nic = "enp0s20u3"
     bob_nic =   "enp0s20u4"
     #addr = "192.168.1.10"
@@ -68,7 +68,7 @@ if __name__ == "__main__":
     sh.register_layer(xss_layer, "xss")
     http_layer.register_child(xss_layer, "javascript")
 
-    video_layer = udp.UDPVideoLayer()
+    video_layer = udp.UDPVideoLayer(log_prefix="/tmp/video", passthrough=True)
     sh.register_layer(xss_layer, "video")
     udp_layer.register_child(video_layer, video_layer.PORT)
 
