@@ -103,8 +103,7 @@ class EthernetLayer(NetLayer):
         yield self.write_back(dst, header, str(pkt))
 
 def attach(nic):
-    #result = subprocess.call(["ifconfig",nic,"up","promisc"])
-    result = 0
+    result = subprocess.call(["ifconfig",nic,"up","promisc"])
     if result:
         raise Exception("ifconfig {0} return exit code {1}".format(nic,result))
     sock = socket.socket(socket.AF_PACKET,socket.SOCK_RAW,socket.htons(ETH_P_ALL))

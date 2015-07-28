@@ -3,7 +3,8 @@ import subprocess
 
 class NetLayer(object):
     class Shell(object):
-        pass
+        def help(*args):
+            print args
 
     routing = {
         1: 0,

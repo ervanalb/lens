@@ -5,6 +5,7 @@ class CommandShell(object):
         self.input_file = open("/dev/stdin")
         self.output_file = open("/dev/stdout", "w")
         self.layers = {}
+        self.ioloop = None
 
     def write_prompt(self):
         self.output_file.write(self.prompt)
@@ -19,18 +20,22 @@ class CommandShell(object):
         if len(arguments) > 0:
             command = arguments.pop(0).lower()
 
-        if layer == "help":
-            result = "Registered layers:", self.layers.keys()
+        if layer == "help" or layer is None:
+            result = "Registered layers:", self.layers.keys().join(", ")
         elif layer in self.layers:
-            lobj = self.layers[layer]
-            fn = getattr(lobj.Shell, "on_%s" % command, None)
-            if fn is not None:
-                try:
-                    result = fn(lobj, arguments)
-                except Exception as e:
-                    result = "Layer Error: %s" % e
+            sh_obj = self.layers[layer].Shell
+            if command is None:
+                cmds = [x[3:] for x in dir(sh_obj) if x.startswith("on_")]
+                result = "Layer '%s' commands:" % layer, cmds.join(", ")
             else:
-                result = "Invalid layer command '%s %s'" % (layer, command)
+                fn = getattr(sh_obj.Shell, "on_%s" % command, None)
+                if fn is not None:
+                    try:
+                        result = fn(lobj, arguments)
+                    except Exception as e:
+                        result = "Layer Error: %s" % e
+                else:
+                    result = "Invalid layer command '%s %s'" % (layer, command)
         else:
             result = "Invalid layer '%s'" % layer
 
@@ -38,6 +43,7 @@ class CommandShell(object):
         self.write_prompt()
 
     def ioloop_attach(self, ioloop):
+        self.ioloop = ioloop
         ioloop.add_handler(self.input_file.fileno(), self.handle_input, ioloop.READ)
         self.write_prompt()
 
