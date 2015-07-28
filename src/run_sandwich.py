@@ -17,8 +17,8 @@ from base import l, connect, NetLayer
 
 if __name__ == "__main__":
     addr = "192.168.0.15"
-    alice_nic = "lo"
-    bob_nic =   "lo"
+    alice_nic = "enp0s20u3"
+    bob_nic =   "enp0s20u4"
     #addr = "192.168.1.10"
     print "Capturing traffic to:", addr
 
