@@ -34,10 +34,7 @@ class HTTPLayer(NetLayer):
     def on_read(self, src, conn, data):
         conn_id = conn[self.CONN_ID_KEY]
         if conn_id not in self.connections:
-            if src == 1:
-                dst = 0
-            else:
-                dst = 1
+            dst = self.route(src, conn)
             req = self.request(conn, dst, src)
             req.next()
             resp = self.response(conn, src, dst)

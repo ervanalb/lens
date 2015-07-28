@@ -12,6 +12,8 @@ class UDPLayer(NetLayer):
     IN_TYPES = {"IP"}
     OUT_TYPE = "IP"
     SINGLE_CHILD = False
+    
+    seen_ports = set()
 
     def match_child(self, src, header, key):
         return key == header["udp_dport"] or key == header["udp_sport"]
@@ -34,31 +36,31 @@ class UDPLayer(NetLayer):
         # Return dpkt.udp.UDP instance so IP layer can calc checksum
         yield self.write_back(dst, header, pkt)
 
-
-class UDPAppLayer(NetLayer):
+class UDPVideoLayer(NetLayer):
     PORT = 40000
-
-class UDPCopyLayer(UDPAppLayer):
-    def __init__(self, *args, **kwargs):
-        super(UDPCopyLayer, self).__init__(*args, **kwargs)
-        self.f = open('/tmp/udp%d' % self.PORT, 'w')
-
-    @gen.coroutine
-    def on_read(self, src, header, data):
-        self.f.write(data)
-
-
-
-class UDPVideoLayer(UDPAppLayer):
     TRANSCODE = ["/usr/bin/ffmpeg", "-y", "-i",  "pipe:0", "-vf", "negate, vflip", "-f", "h264", "pipe:1"]
     UNIT = "\x00\x00\x00\x01"
     PS = 1396
 
     def __init__(self, *args, **kwargs):
+        log_prefix = kwargs.pop('log_prefix', None)
+        self.passthrough = kwargs.pop("passthrough", False)
+
         super(UDPVideoLayer, self).__init__(*args, **kwargs)
-        #self.out = open('/tmp/udp%d' % self.PORT, 'w')
+        
+        if log_prefix is not None:
+            self.log_raw = open(log_prefix + ".raw", 'w')
+            self.log_input = open(log_prefix + ".input", 'w')
+            self.log_output = open(log_prefix + ".output", 'w')
+        else:
+            self.log_raw = None
+            self.log_input = None
+            self.log_output = None
+
         self.ffmpeg = subprocess.Popen(self.TRANSCODE, stdout=subprocess.PIPE, stdin=subprocess.PIPE)
         fcntl.fcntl(self.ffmpeg.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
+
+
         self.seq = 0
         self.ts = 0
         self.fu_start = False
@@ -66,6 +68,11 @@ class UDPVideoLayer(UDPAppLayer):
 
     @gen.coroutine
     def on_read(self, src, header, data):
+        if self.log_raw is not None:
+            self.log_raw.write(data)
+            self.log_raw.flush()
+        if self.passthrough:
+            self.bubble(src, header, data)
         if len(data) >= 12: #and data[0x2b] == '\xe0':
             h, d = data[:12], data[12:]
             flags, prot, seq, ts, ident = struct.unpack("!BBHII", h)
@@ -91,7 +98,10 @@ class UDPVideoLayer(UDPAppLayer):
                                 self.fu_start = False
                         else:
                             print "skipping packet :("
-                print "writing packet to ffmpeg"
+                #print "writing packet to ffmpeg"
+                if self.log_input is not None:
+                    self.log_input.write(nout)
+                    self.log_input.flush()
                 self.ffmpeg.stdin.write(nout)
                 yield self.pass_on(src, header)
             else:
@@ -127,6 +137,10 @@ class UDPVideoLayer(UDPAppLayer):
         mark = 0x80 if end else 0 
         head = struct.pack("!BBHII", 0x80, 96 | mark, self.seq, self.ts, 0)
         self.seq += 1
-        yield self.write_back(dst, header, head + data)
+        if self.log_output is not None:
+            self.log_output.write(head + data)
+            self.log_output.flush()
+        if not self.passthrough:
+            yield self.write_back(dst, header, head + data)
 
 
