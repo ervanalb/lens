@@ -14,14 +14,11 @@ import tornado.gen as gen
 from base import l, connect, NetLayer
 
 if __name__ == "__main__":
-    alice_nic = "enp0s20u3"
-    bob_nic =   "enp0s20u4"
-
     print "Cloud 2 butt: s/cloud/butt/g over HTTP"
 
     tap = driver.FakeTap()
 
-    loop, link_layer = ethernet.build_ethernet_loop(alice_nic, bob_nic)
+    loop, link_layer = ethernet.build_ethernet_loop()
     tap.mitm()
 
     eth_layer = ethernet.EthernetLayer()

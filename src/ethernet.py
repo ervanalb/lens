@@ -103,9 +103,9 @@ class EthernetLayer(NetLayer):
         yield self.write_back(dst, header, str(pkt))
 
 def attach(nic):
-    result = subprocess.call(["ifconfig",nic,"up","promisc"])
+    result = subprocess.call(["ip","link","set","up","promisc","on","dev",nic])
     if result:
-        raise Exception("ifconfig {0} return exit code {1}".format(nic,result))
+        raise Exception("ip link dev {0} returned exit code {1}".format(nic,result))
     sock = socket.socket(socket.AF_PACKET,socket.SOCK_RAW,socket.htons(ETH_P_ALL))
     sock.bind((nic,0))
     sock.setblocking(0)
@@ -122,7 +122,7 @@ def eth_callback(layer, src, fd, events):
                 raise
             return
 
-def build_ethernet_loop(alice_nic="enp0s20u1", bob_nic="enp0s20u2"):
+def build_ethernet_loop(alice_nic="tapa", bob_nic="tapb"):
     alice_sock = attach(alice_nic)
     bob_sock = attach(bob_nic)
 
