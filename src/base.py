@@ -2,9 +2,6 @@ import tornado.gen as gen
 import subprocess
 
 class NetLayer(object):
-    class Shell(object):
-        def help(*args):
-            print args
 
     routing = {
         1: 0,
@@ -104,6 +101,10 @@ class NetLayer(object):
     def unroute(self, dst, header):
         # Given a message to port `dst`, determine which port it should have come from
         return self.routing[dst]
+
+    def do_help(self, *args):
+        # Shell command handler for 'help'
+        print args
 
 class LineBufferLayer(NetLayer):
     # Buffers incoming data line-by-line

@@ -32,7 +32,7 @@ if __name__ == "__main__":
 
     eth_layer = ethernet.EthernetLayer()
     sh.register_layer(eth_layer, "eth")
-    link_layer.register_child(eth_layer)
+    #link_layer.register_child(eth_layer)
 
     ipv4_layer = ip.IPv4Layer(addr_filter=[addr])
     sh.register_layer(ipv4_layer, "ip")

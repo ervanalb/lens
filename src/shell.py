@@ -1,4 +1,5 @@
 class CommandShell(object):
+    CMD_PREFIX = "do_"
     prompt = "> "
 
     def __init__(self):
@@ -21,25 +22,28 @@ class CommandShell(object):
             command = arguments.pop(0).lower()
 
         if layer == "help" or layer is None:
-            result = "Registered layers:", self.layers.keys().join(", ")
+            result = "Registered layers: {}".format(", ".join(self.layers.keys()))
+        elif layer == "quit":
+            pass # TODO
         elif layer in self.layers:
-            sh_obj = self.layers[layer].Shell
+            layer_obj = self.layers[layer]
             if command is None:
-                cmds = [x[3:] for x in dir(sh_obj) if x.startswith("on_")]
-                result = "Layer '%s' commands:" % layer, cmds.join(", ")
+                cmds = [x[3:] for x in dir(layer_obj) if x.startswith(self.CMD_PREFIX)]
+                result = "Layer '{}' commands: {}".format(layer, ", ".join(cmds))
             else:
-                fn = getattr(sh_obj.Shell, "on_%s" % command, None)
+                fn = getattr(layer_obj, self.CMD_PREFIX + command, None)
                 if fn is not None:
                     try:
-                        result = fn(lobj, arguments)
+                        result = fn(*arguments)
                     except Exception as e:
-                        result = "Layer Error: %s" % e
+                        result = "Layer Error: {}".format(e)
                 else:
-                    result = "Invalid layer command '%s %s'" % (layer, command)
+                    result = "Invalid layer command '{} {}'".format(layer, command)
         else:
-            result = "Invalid layer '%s'" % layer
+            result = "Invalid layer '{}'".format(layer)
 
-        self.output_file.write(result + "\n")
+        if result is not None:
+            self.output_file.write(str(result) + "\n")
         self.write_prompt()
 
     def ioloop_attach(self, ioloop):
