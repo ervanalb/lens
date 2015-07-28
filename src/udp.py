@@ -36,22 +36,8 @@ class UDPLayer(NetLayer):
         # Return dpkt.udp.UDP instance so IP layer can calc checksum
         yield self.write_back(dst, header, pkt)
 
-
-class UDPAppLayer(NetLayer):
+class UDPVideoLayer(NetLayer):
     PORT = 40000
-
-class UDPCopyLayer(UDPAppLayer):
-    def __init__(self, *args, **kwargs):
-        super(UDPCopyLayer, self).__init__(*args, **kwargs)
-        self.f = open('/tmp/udp%d' % self.PORT, 'w')
-
-    @gen.coroutine
-    def on_read(self, src, header, data):
-        self.f.write(data)
-
-
-
-class UDPVideoLayer(UDPAppLayer):
     TRANSCODE = ["/usr/bin/ffmpeg", "-y", "-i",  "pipe:0", "-vf", "negate, vflip", "-f", "h264", "pipe:1"]
     UNIT = "\x00\x00\x00\x01"
     PS = 1396

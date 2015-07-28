@@ -2,6 +2,9 @@ import tornado.gen as gen
 import subprocess
 
 class NetLayer(object):
+    class Shell(object):
+        pass
+
     routing = {
         1: 0,
         0: 1
