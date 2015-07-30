@@ -8,6 +8,9 @@ import subprocess
 import fcntl
 import os
 
+def binprint(d):
+    print " ".join(["{0:02x}".format(ord(c)) for c in d])
+
 class UDPLayer(NetLayer):
     IN_TYPES = {"IP"}
     OUT_TYPE = "IP"
@@ -53,7 +56,10 @@ class UDPCopyLayer(UDPAppLayer):
 
 
 class UDPVideoLayer(UDPAppLayer):
-    TRANSCODE = ["/usr/bin/ffmpeg", "-y", "-i",  "pipe:0", "-vf", "negate, vflip", "-f", "h264", "pipe:1"]
+    #TRANSCODE = ["/usr/bin/ffmpeg", "-y", "-i",  "pipe:0", "-vf", "negate, vflip", "-f", "h264", "pipe:1"]
+    TRANSCODE = ["/usr/bin/ffmpeg", "-y", "-f", "h264", "-i",  "pipe:0", "-f", "h264", "pipe:1"]
+    #TRANSCODE = ["tee","out.h264"]
+    #TRANSCODE = ["cat"]
     UNIT = "\x00\x00\x00\x01"
     PS = 1396
 
@@ -84,19 +90,19 @@ class UDPVideoLayer(UDPAppLayer):
         self.ts = 0
         self.fu_start = False
         self.rencoded_buffer = ''
-        self.do_loop = True
+        self.do_loop = False
         if self.do_loop:
             f = open("/tmp/voutff")
             self.templ = f.read()
         else:
             self.templ = "xxx"
         self.tp = self.templ
-        self.ffmpeg.stdin.write(self.templ)
+        #self.ffmpeg.stdin.write(self.templ)
         self.sent_iframe = False
 
     @gen.coroutine
     def on_read(self, src, header, data):
-        print "got video data", len(data)
+        #print "got video data", len(data)
         if self.log_raw is not None:
             self.log_raw.write(data)
             self.log_raw.flush()
@@ -113,40 +119,47 @@ class UDPVideoLayer(UDPAppLayer):
                 nalu = d
                 n0 = ord(nalu[0])
                 n1 = ord(nalu[1])
-                nout = self.UNIT + nalu
-                if n0 & 0x10:
-                    if n0 != 0x7C: raise Exception("Invalid fragmentation format: %d 0x%x" % (n0 & 0x1F, n0))
+                fragment_type = n0 & 0x1F
+                if fragment_type < 24: # unfragmented
+                    self.nout = self.UNIT + nalu
+                    self.got_frame(self.nout)
+                    if self.log_input is not None:
+                        self.log_input.write(self.nout)
+                        self.log_input.flush()
+                elif fragment_type == 28: # FU-A
                     if n1 & 0x80:
-                        if self.fu_start: raise Exception("Restarted fragment")
+                        if self.fu_start: print "Restarted fragment"
                         self.fu_start = True
-                        nout = self.UNIT + chr((n0 & 0xE0) | (n1 & 0x1F)) + nalu[2:]
+                        self.nout = self.UNIT + chr((n0 & 0xE0) | (n1 & 0x1F)) + nalu[2:]
                     else:
                         if self.fu_start:
-                            nout = nalu[2:]
+                            self.nout += nalu[2:]
                             if n1 & 0x40:
                                 self.fu_start = False
+                                self.got_frame(self.nout)
+                                if self.log_input is not None:
+                                    self.log_input.write(self.nout)
+                                    self.log_input.flush()
                         else:
                             print "skipping packet :("
-                print "writing packet to ffmpeg"
-                if self.log_input is not None:
-                    self.log_input.write(nout)
-                    self.log_input.flush()
 
-
-                if self.do_loop:
-                    self.ffmpeg.stdin.write(self.tp[:len(nout)])
-                    self.ffmpeg.stdin.flush()
-                    self.tp = self.tp[len(nout):]
-                    if not self.tp:
-                        self.tp = self.templ
-                    self.vlog.write(nout)
-                else:
-                    self.ffmpeg.stdin.write(nout)
-                    self.vlog.write(nout)
                 yield self.pass_on(src, header)
                 #yield self.passthru(src, data, header)
-            else:
-                print "no match", prot, seq, ts, ident, flags, len(d)
+
+    def got_frame(self, data):
+        print "writing packet to ffmpeg... len",len(data),
+        binprint(data[0:10])
+        if self.do_loop:
+            self.ffmpeg.stdin.write(self.tp[:len(nout)])
+            self.ffmpeg.stdin.flush()
+            self.tp = self.tp[len(nout):]
+            if not self.tp:
+                self.tp = self.templ
+            self.vlog.write(data)
+        else:
+            self.ffmpeg.stdin.write(data)
+            self.vlog.write(data)
+ 
 
     @gen.coroutine
     def pass_on(self, src, header):
@@ -176,12 +189,15 @@ class UDPVideoLayer(UDPAppLayer):
                 yield self.write_nal_fragment(src, nal_data, header, end=True)
             else:
                 #FU-A fragmentation
-                yield self.write_nal_fragment(src, '\x7C' + chr(0x80 | (h0 & 0x1F)) + nal_data[1:self.PS-1], header, end=False)
+                fragment_type = 28
+                n0 = h0 & 0xE0 | fragment_type
+                n1 = h0 & 0x1F
+                yield self.write_nal_fragment(src, chr(n0) + chr(0x80 | n1) + nal_data[1:self.PS-1], header, end=False)
                 nal_data = nal_data[self.PS-1:]
                 while len(nal_data) > self.PS-2:
-                    yield self.write_nal_fragment(src, '\x7C' + chr(0x00 | (h0 & 0x1F)) + nal_data[:self.PS-2], header, end=False)
+                    yield self.write_nal_fragment(src, chr(n0) + chr(n1) + nal_data[:self.PS-2], header, end=False)
                     nal_data = nal_data[self.PS-2:]
-                yield self.write_nal_fragment(src, '\x7C' + chr(0x40 | (h0 & 0x1F)) + nal_data, header, end=True)
+                yield self.write_nal_fragment(src, chr(n0) + chr(0x40 | n1) + nal_data, header, end=True)
 
     @gen.coroutine
     def write_nal_fragment(self, src, data, header, end=True):
