@@ -84,14 +84,14 @@ class UDPVideoLayer(UDPAppLayer):
         self.ts = 0
         self.fu_start = False
         self.rencoded_buffer = ''
-        self.do_loop = True
+        self.do_loop = False
         if self.do_loop:
             f = open("/tmp/voutff")
             self.templ = f.read()
+            self.ffmpeg.stdin.write(self.templ)
         else:
             self.templ = "xxx"
         self.tp = self.templ
-        self.ffmpeg.stdin.write(self.templ)
         self.sent_iframe = False
 
     @gen.coroutine
