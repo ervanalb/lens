@@ -18,7 +18,7 @@ if __name__ == "__main__":
 
     tap = driver.FakeTap()
 
-    loop, link_layer = ethernet.build_ethernet_loop()
+    loop, link_layer = ethernet.build_ethernet_loop(alice_nic="enp0s20u4", bob_nic="enp0s20u3")
     tap.mitm()
 
     eth_layer = ethernet.EthernetLayer()

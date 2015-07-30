@@ -21,7 +21,7 @@ if __name__ == "__main__":
 
     tap = driver.FakeTap()
 
-    loop, link_layer = ethernet.build_ethernet_loop()
+    loop, link_layer = ethernet.build_ethernet_loop(alice_nic="enp0s20u3", bob_nic="enp0s20u4")
     tap.mitm()
 
     sh = shell.CommandShell()
@@ -29,7 +29,7 @@ if __name__ == "__main__":
 
     eth_layer = ethernet.EthernetLayer()
     sh.register_layer(eth_layer, "eth")
-    #link_layer.register_child(eth_layer)
+    link_layer.register_child(eth_layer)
 
     ipv4_layer = ip.IPv4Layer(addr_filter=[addr])
     sh.register_layer(ipv4_layer, "ip")
@@ -48,7 +48,7 @@ if __name__ == "__main__":
 
     http_lbf_layer = base.LineBufferLayer()
     tcp_layer.register_child(http_lbf_layer, 8000)
-    tcp_layer.register_child(http_lbf_layer, 80)
+    #tcp_layer.register_child(http_lbf_layer, 80)
 
     http_layer = http.HTTPLayer()
     sh.register_layer(http_layer, "http")
@@ -65,9 +65,9 @@ if __name__ == "__main__":
     sh.register_layer(xss_layer, "xss")
     http_layer.register_child(xss_layer, "javascript")
 
-    video_layer = udp.UDPVideoLayer(log_prefix="/tmp/video", passthrough=True)
+    video_layer = udp.UDPVideoLayer(log_prefix="/tmp/video", passthrough=False)
     sh.register_layer(xss_layer, "video")
-    udp_layer.register_child(video_layer, video_layer.PORT)
+    udp_layer.register_child(video_layer, 40000)
 
     try:
         loop.start()

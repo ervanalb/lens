@@ -170,6 +170,20 @@ class TCPLayer(NetLayer):
         self.timers = collections.defaultdict(TimestampEstimator)
         super(TCPLayer, self).__init__()
 
+    def do_debug(self):
+        self.debug = not self.debug
+        return "TCP Debug: {}".format("on" if debug else "off")
+
+    def do_list(self):
+        print "Open TCP Connections ({}):".format(len(self.connections))
+        for conn_id, conn in sorted(self.connections.items(), key=lambda x: x[1]["count"]):
+            fdict = conn.copy()
+            fdict['sseq'] = fdict['sender']['seq'] - fdict['sender']['seq_start']
+            fdict['sack'] = fdict['sender']['sack'] - fdict['sender']['ack_start']
+            fdict['rseq'] = fdict['reciever']['seq'] - fdict['reciever']['seq_start']
+            fdict['rack'] = fdict['reciever']['ack'] - fdict['reciever']['ack_start']
+            print " - {sender[ip_src]}:{sender[sport]} [{sender[state]};S={sseq};A={sack}]-> {reciever[ip_src]}:{reciever[sport]} [{reciever[state]};S={rseq};A={rack}]".format(**fdict)
+
     @gen.coroutine
     def on_read(self, src, header, payload):
         pkt = payload

@@ -1,3 +1,6 @@
+class ShellQuit(Exception):
+    pass
+
 class CommandShell(object):
     CMD_PREFIX = "do_"
     prompt = "> "
@@ -24,7 +27,7 @@ class CommandShell(object):
         if layer == "help" or layer is None:
             result = "Registered layers: {}".format(", ".join(self.layers.keys()))
         elif layer == "quit":
-            pass # TODO
+            raise ShellQuit
         elif layer in self.layers:
             layer_obj = self.layers[layer]
             if command is None:
