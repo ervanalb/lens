@@ -21,7 +21,7 @@ if __name__ == "__main__":
 
     tap = driver.FakeTap()
 
-    loop, link_layer = ethernet.build_ethernet_loop(alice_nic="enp0s20u3", bob_nic="enp0s20u4")
+    loop, link_layer = ethernet.build_ethernet_loop()
     tap.mitm()
 
     sh = shell.CommandShell()
@@ -39,12 +39,12 @@ if __name__ == "__main__":
     sh.register_layer(udp_layer, "udp")
     ipv4_layer.register_child(udp_layer, dpkt.ip.IP_PROTO_UDP)
 
-    ssh_filter_layer = tcp.TCPPassthruLayer(ports=[22])
-    ipv4_layer.register_child(ssh_filter_layer, dpkt.ip.IP_PROTO_TCP)
+    #ssh_filter_layer = tcp.TCPPassthruLayer(ports=[22])
+    #ipv4_layer.register_child(ssh_filter_layer, dpkt.ip.IP_PROTO_TCP)
 
     tcp_layer = tcp.TCPLayer(debug=False)
-    sh.register_layer(tcp_layer, "tcp")
-    ssh_filter_layer.register_child(tcp_layer)
+    #sh.register_layer(tcp_layer, "tcp")
+    #ssh_filter_layer.register_child(tcp_layer)
 
     http_lbf_layer = base.LineBufferLayer()
     tcp_layer.register_child(http_lbf_layer, 8000)
