@@ -3,6 +3,7 @@ from ethernet import NetLayer
 import dpkt 
 
 from tornado import gen
+from tornado.ioloop import IOLoop
 import struct
 import subprocess
 import fcntl
@@ -53,11 +54,10 @@ class UDPCopyLayer(UDPAppLayer):
     def on_read(self, src, header, data):
         self.f.write(data)
 
-
-
 class UDPVideoLayer(UDPAppLayer):
     #TRANSCODE = ["/usr/bin/ffmpeg", "-y", "-i",  "pipe:0", "-vf", "negate, vflip", "-f", "h264", "pipe:1"]
-    TRANSCODE = ["/usr/bin/ffmpeg", "-y", "-f", "h264", "-i",  "pipe:0", "-f", "h264", "pipe:1"]
+    TRANSCODE = ["/usr/bin/ffmpeg", "-y", "-f", "h264", "-i", "-", "-vf", "negate, vflip", "-f", "h264", "-"]
+    TRANSCODE = ["/usr/bin/sh", "../misc/haxed.sh"]
     #TRANSCODE = ["tee","out.h264"]
     #TRANSCODE = ["cat"]
     UNIT = "\x00\x00\x00\x01"
@@ -84,7 +84,9 @@ class UDPVideoLayer(UDPAppLayer):
         self.rlogi = open('/tmp/rlogi', 'w')
         self.rlogo = open('/tmp/rlogo', 'w')
         fcntl.fcntl(self.ffmpeg.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
-
+        fcntl.fcntl(self.ffmpeg.stdin.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
+        self.ioloop = IOLoop.instance()
+        self.ioloop.add_handler(self.ffmpeg.stdout.fileno(), self.ffmpeg_read_handler, IOLoop.READ)
 
         self.seq = 0
         self.ts = 0
@@ -99,6 +101,8 @@ class UDPVideoLayer(UDPAppLayer):
         self.tp = self.templ
         #self.ffmpeg.stdin.write(self.templ)
         self.sent_iframe = False
+        self.last_src = None
+        self.last_header = None
 
     @gen.coroutine
     def on_read(self, src, header, data):
@@ -115,6 +119,8 @@ class UDPVideoLayer(UDPAppLayer):
             flags |= (prot & 0x80) << 1
             prot &= 0x7F
             if prot == 96:
+                self.last_src = src
+                self.last_header = header
                 #print 'match', seq, ts, ident, flags, len(d)
                 nalu = d
                 n0 = ord(nalu[0])
@@ -143,34 +149,39 @@ class UDPVideoLayer(UDPAppLayer):
                         else:
                             print "skipping packet :("
 
-                yield self.pass_on(src, header)
+                #yield self.pass_on(src, header)
                 #yield self.passthru(src, data, header)
 
     def got_frame(self, data):
-        print "writing packet to ffmpeg... len",len(data),
-        binprint(data[0:10])
+        #print "incoming frame."
         if self.do_loop:
             self.ffmpeg.stdin.write(self.tp[:len(nout)])
-            self.ffmpeg.stdin.flush()
+            #self.ffmpeg.stdin.flush()
             self.tp = self.tp[len(nout):]
             if not self.tp:
                 self.tp = self.templ
             self.vlog.write(data)
         else:
-            self.ffmpeg.stdin.write(data)
+            try:
+                self.ffmpeg.stdin.write(data)
+                self.ffmpeg.stdin.flush()
+            except IOError:
+                print "ERROR! FFMPEG is too slow"
             self.vlog.write(data)
- 
+
+    def ffmpeg_read_handler(self, fd, events):
+        new_data = self.ffmpeg.stdout.read()
+        if new_data and self.last_src is not None and self.last_header is not None:
+            f = self.pass_on(self.last_src, self.last_header, new_data)
+            if f:
+                self.ioloop.add_future(f, lambda f: None)
 
     @gen.coroutine
-    def pass_on(self, src, header):
-        try:
-            new_data = self.ffmpeg.stdout.read()
-        except IOError:
-            new_data = ''
-        if new_data:
-            #print "got data from ffmpeg"
-            self.vlog2.write(new_data)
-            self.rencoded_buffer += new_data
+    def pass_on(self, src, header, new_data):
+        #print "got data from ffmpeg"
+        self.vlog2.write(new_data)
+        self.rencoded_buffer += new_data
+
         if self.UNIT not in self.rencoded_buffer:
             return
         usplit = self.rencoded_buffer.split(self.UNIT)
