@@ -34,14 +34,11 @@ class FfmpegLayer(NetLayer):
         self.ioloop = IOLoop.instance()
         self.ioloop.add_handler(self.ffmpeg.stdout.fileno(), self.ffmpeg_read_handler, IOLoop.READ)
 
-        self.do_loop = False
-        if self.do_loop:
-            f = open("/tmp/lens-ffmpeg-source.h264")
-            self.templ = f.read()
-            self.ffmpeg.stdin.write(self.templ)
-        else:
-            self.templ = "xxx"
-        self.tp = self.templ
+        self.loop = False
+        self.record = False
+
+        self.recorded_buffer = []
+        self.replay_buffer = []
 
         # FIXME: support multiple streams
         self.last_src = None
@@ -54,17 +51,19 @@ class FfmpegLayer(NetLayer):
         self.last_src = src
         self.last_header = header
 
-        if self.do_loop:
-            self.ffmpeg.stdin.write(self.tp[:len(nout)])
-            self.tp = self.tp[len(nout):]
-            if not self.tp:
-                self.tp = self.templ
-        else:
-            try:
-                self.ffmpeg.stdin.write(data)
-                self.ffmpeg.stdin.flush()
-            except IOError:
-                print "ERROR! FFMPEG is too slow"
+        if self.record:
+            self.recorded_buffer.append(data)
+
+        if self.loop:
+            if not self.replay_buffer:
+                self.replay_buffer = self.recorded_buffer[:]
+            data = self.replay_buffer.pop(0)
+
+        try:
+            self.ffmpeg.stdin.write(data)
+            self.ffmpeg.stdin.flush()
+        except IOError:
+            print "ERROR! FFMPEG is too slow"
 
     def ffmpeg_read_handler(self, fd, events):
         new_data = self.ffmpeg.stdout.read()
@@ -79,6 +78,29 @@ class FfmpegLayer(NetLayer):
             print "Started sending ffmpeg stream"
             self.has_sent_data = True
 
+    def do_record(self, *args):
+        if self.record:
+            self.record = False
+            return "ffmpeg recorded {} frames ({} kB) of video.".format(len(self.recorded_buffer), sum(map(len, self.recorded_buffer)) / 1024)
+        elif self.loop:
+            return "ffmpeg cannot record while looping."
+        else:
+            self.record = True
+            self.recorded_buffer = []
+            return "ffmpeg is recording video..."
+
+    def do_loop(self, *args):
+        if self.loop:
+            self.loop = False
+            return "ffmpeg is returning to normal video."
+        elif self.record:
+            return "ffmpeg cannot loop while recording."
+        elif len(self.recorded_buffer) < 32:
+            return "ffmpeg cannot loop less than 32 frames of video."
+        else:
+            self.loop = True
+            return "ffmpeg is looping recorded video."
+
 class H264NalLayer(NetLayer):
     # https://tools.ietf.org/html/rfc3984
     NAME = "h264"
@@ -92,8 +114,8 @@ class H264NalLayer(NetLayer):
         self.seq_num = 0
         self.frag_unit_started = False
         self.rencoded_buffer = ''
-        self.sent_iframe = False
         self.fragment_buffer = ''
+        self.make_toggle("datamosh")
 
     #def match(self, src, header):
     #    return self.port is None or header["udp_dport"] == self.port or header["udp_sport"] == self.port
@@ -164,8 +186,12 @@ class H264NalLayer(NetLayer):
         for nal_data in usplit[1:-1]:
             # First byte can be used to determine frame type (I, P, B)
             h0 = ord(nal_data[0])
-            if h0 & 0x1F == 5: # I-frame
-                self.sent_iframe = True
+
+            # I-frame
+            if h0 & 0x1F == 5:
+                # Implement datamoshing by skipping I-frames
+                if self.datamosh: 
+                    continue
 
             # TODO:  Re-generate timestamps
 
@@ -180,9 +206,9 @@ class H264NalLayer(NetLayer):
                 n0 = h0 & 0xE0 | fragment_type
                 n1 = h0 & 0x1F
                 yield self.write_nal_fragment(dst, header, chr(n0) + chr(0x80 | n1) + nal_data[1:self.PS-1], end=False)
+                nal_data = nal_data[self.PS-1:]
 
                 # Write intermediate datagrams
-                nal_data = nal_data[self.PS-1:]
                 while len(nal_data) > self.PS-2:
                     yield self.write_nal_fragment(dst, header, chr(n0) + chr(n1) + nal_data[:self.PS-2], end=False)
                     nal_data = nal_data[self.PS-2:]

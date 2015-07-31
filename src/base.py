@@ -89,6 +89,19 @@ class NetLayer(object):
         # Shell command handler for 'help'
         return "This command is undocumented."
 
+    def make_toggle(self, name, default=False):
+        # Generates property & shell command to toggle the property
+        # Usage: (in __init__)
+        # self.make_toggle("prop")
+        def _do_toggle(*args):
+            v = not getattr(self, name)
+            setattr(self, name, v)
+            return "{} {}: {}".format(self.__class__.__name__, name, "on" if v else "off")
+
+        setattr(self, "do_" + name, _do_toggle)
+        setattr(self, name, default)
+        return default
+
     def do_debug(self, *args):
         # Shell command handler for 'debug' to toggle self.debug
         self.debug = not self.debug

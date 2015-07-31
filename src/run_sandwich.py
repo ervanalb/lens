@@ -83,7 +83,7 @@ if __name__ == "__main__":
     udp_layer.register_child(video_filter_layer)
 
     video_layer = video.H264NalLayer()
-    sh.register_layer(video_layer)
+    sh.register_layer(video_layer, "nal")
     video_filter_layer.register_child(video_layer)
 
     ffmpeg_layer = video.FfmpegLayer()
