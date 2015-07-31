@@ -10,6 +10,7 @@ import ip
 import tcp
 import udp
 import http
+import video
 
 import tornado.gen as gen
 
@@ -65,9 +66,13 @@ if __name__ == "__main__":
     sh.register_layer(xss_layer, "xss")
     http_layer.register_child(xss_layer, "javascript")
 
-    video_layer = udp.UDPVideoLayer(log_prefix="/tmp/video", passthrough=False)
-    sh.register_layer(xss_layer, "video")
+    video_layer = video.H264NalLayer(log_prefix="/tmp/video", passthrough=False)
+    sh.register_layer(video_layer, "h264")
     udp_layer.register_child(video_layer, 40000)
+
+    ffmpeg_layer = video.FfmpegLayer()
+    sh.register_layer(ffmpeg_layer, "ffmpeg")
+    video_layer.register_child(ffmpeg_layer)
 
     try:
         loop.start()
