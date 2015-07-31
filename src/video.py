@@ -21,7 +21,9 @@ class FfmpegLayer(NetLayer):
     def __init__(self, *args, **kwargs):
         super(FfmpegLayer, self).__init__(*args, **kwargs)
 
-        self.ffmpeg = subprocess.Popen(self.TRANSCODE, stdout=subprocess.PIPE, stdin=subprocess.PIPE)
+        #ffmpeg_log = open("/dev/null", "w")
+        ffmpeg_log = open("/tmp/lens-ffmpeg.log", "w")
+        self.ffmpeg = subprocess.Popen(self.TRANSCODE, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=ffmpeg_log)
         fcntl.fcntl(self.ffmpeg.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
         fcntl.fcntl(self.ffmpeg.stdin.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
         self.ioloop = IOLoop.instance()
@@ -29,7 +31,7 @@ class FfmpegLayer(NetLayer):
 
         self.do_loop = False
         if self.do_loop:
-            f = open("/tmp/voutff")
+            f = open("/tmp/lens-ffmpeg-source.h264")
             self.templ = f.read()
             self.ffmpeg.stdin.write(self.templ)
         else:
@@ -44,7 +46,7 @@ class FfmpegLayer(NetLayer):
     def on_read(self, src, header, data):
         self.last_src = src
         self.last_header = header
-        #print "incoming frame."
+        print "incoming frame."
         if self.do_loop:
             self.ffmpeg.stdin.write(self.tp[:len(nout)])
             self.tp = self.tp[len(nout):]
@@ -59,7 +61,7 @@ class FfmpegLayer(NetLayer):
 
     def ffmpeg_read_handler(self, fd, events):
         new_data = self.ffmpeg.stdout.read()
-        #print "outgoing frame"
+        print "outgoing frame"
         if new_data and self.last_src is not None and self.last_header is not None:
             dst = self.route(self.last_src, self.last_header)
             f = self.write_back(dst, self.last_header, new_data)
@@ -67,125 +69,100 @@ class FfmpegLayer(NetLayer):
                 self.ioloop.add_future(f, lambda f: None)
 
 class H264NalLayer(NetLayer):
+    # https://tools.ietf.org/html/rfc3984
     SINGLE_CHILD = True
     UNIT = "\x00\x00\x00\x01"
     PS = 1396
 
     def __init__(self, *args, **kwargs):
-        log_prefix = kwargs.pop('log_prefix', None)
-        self.passthrough = kwargs.pop("passthrough", False)
-
         super(H264NalLayer, self).__init__(*args, **kwargs)
-        
-        if log_prefix is not None:
-            self.log_raw = open(log_prefix + ".raw", 'w')
-            self.log_input = open(log_prefix + ".input", 'w')
-            self.log_output = open(log_prefix + ".output", 'w')
-        else:
-            self.log_raw = None
-            self.log_input = None
-            self.log_output = None
-
-        self.vlog = open('/tmp/vout', 'w')
-        self.vlog2 = open('/tmp/vout2', 'w')
-        self.rlogi = open('/tmp/rlogi', 'w')
-        self.rlogo = open('/tmp/rlogo', 'w')
-
-        self.seq = 0
-        self.ts = 0
-        self.fu_start = False
+        self.seq_num = 0
+        self.timestamp = 0
+        self.frag_unit_started = False
         self.rencoded_buffer = ''
         self.sent_iframe = False
+        self.fragment_buffer = ''
 
     @gen.coroutine
     def on_read(self, src, header, data):
-        #print "got video data", len(data)
-        if self.log_raw is not None:
-            self.log_raw.write(data)
-            self.log_raw.flush()
-        #if self.passthrough:
-            #yield self.bubble(src, header, data)
+        # Drop packets less than 12 bytes silently
         if len(data) >= 12: #and data[0x2b] == '\xe0':
-            h, d = data[:12], data[12:]
-            flags, prot, seq, ts, ident = struct.unpack("!BBHII", h)
-            self.ts = ts
-            flags |= (prot & 0x80) << 1
-            prot &= 0x7F
-            if prot == 96:
-                #print 'match', seq, ts, ident, flags, len(d)
-                nalu = d
-                n0 = ord(nalu[0])
-                n1 = ord(nalu[1])
-                fragment_type = n0 & 0x1F
-                if fragment_type < 24: # unfragmented
-                    self.nout = self.UNIT + nalu
-                    #self.got_frame(self.nout)
-                    yield self.bubble(src, header, self.nout)
-                    if self.log_input is not None:
-                        self.log_input.write(self.nout)
-                        self.log_input.flush()
-                elif fragment_type == 28: # FU-A
-                    if n1 & 0x80:
-                        if self.fu_start: print "Restarted fragment"
-                        self.fu_start = True
-                        self.nout = self.UNIT + chr((n0 & 0xE0) | (n1 & 0x1F)) + nalu[2:]
-                    else:
-                        if self.fu_start:
-                            self.nout += nalu[2:]
-                            if n1 & 0x40:
-                                self.fu_start = False
-                                #self.got_frame(self.nout)
-                                yield self.bubble(src, header, self.nout)
-                                if self.log_input is not None:
-                                    self.log_input.write(self.nout)
-                                    self.log_input.flush()
-                        else:
-                            print "skipping packet :("
+            hdr, contents = data[:12], data[12:]
 
-                #yield self.pass_on(src, header)
-                #yield self.passthru(src, data, header)
+            # https://tools.ietf.org/html/rfc3984#section-5.1
+            flags, payload_type, seq_num, timestamp, ident = struct.unpack("!BBHII", hdr)
+            self.timestamp = timestamp
+
+            # The 8th bit of payload_type is the 'marker bit' flag
+            # Move it to the 9th bit of `flags` & remove from `payload_type`
+            flags |= (payload_type & 0x80) << 1
+            payload_type &= 0x7F
+
+            if payload_type == 96: # H.264 only supported right now
+                nal_unit = contents
+                n0 = ord(nal_unit[0])
+                n1 = ord(nal_unit[1])
+
+                # The first 5 bits of the contents are the 'fragment type'
+                # Currently only FU-A and unfragmented are supported.
+                fragment_type = n0 & 0x1F 
+                if fragment_type < 24: # unfragmented
+                    h264_fragment = self.UNIT + nal_unit
+                    yield self.bubble(src, header, h264_fragment)
+                elif fragment_type == 28: # FU-A
+                    if n1 & 0x80: # Start of fragment
+                        self.fragment_buffer = self.UNIT + chr((n0 & 0xE0) | (n1 & 0x1F)) + nal_unit[2:]
+                    elif n1 & 0x40 and self.fragment_buffer is not None: # End of a fragment
+                            yield self.bubble(src, header, self.fragment_buffer)
+                            self.fragment_buffer = None
+                    elif self.fragment_buffer is not None: # Middle of a fragmetn
+                        if self.fragment_buffer is not None:
+                            self.fragment_buffer += nal_unit[2:]
 
 
     @gen.coroutine
     def write(self, dst, header, data):
-        #print "got data from ffmpeg"
         self.rencoded_buffer += data
-
         if self.UNIT not in self.rencoded_buffer:
             return
+
         usplit = self.rencoded_buffer.split(self.UNIT)
         assert usplit[0] == ''
         self.rencoded_buffer = self.UNIT + usplit[-1]
+
         for nal_data in usplit[1:-1]:
-            #print "nal_dat size", len(nal_data)
+            # First byte can be used to determine frame type (I, P, B)
             h0 = ord(nal_data[0])
-            if h0 & 0x1F == 5:
-                #print "skipping iframe"
-                #continue #skip iframe
-                pass
-            elif h0 & 0x1F == 5:
+            if h0 & 0x1F == 5: # I-frame
                 self.sent_iframe = True
+
+            # Can we fit it the whole frame in 1 packet, or do we need to fragment?
             if len(nal_data) <= self.PS:
                 yield self.write_nal_fragment(dst, header, nal_data, end=True)
             else:
-                #FU-A fragmentation
+                # FU-A fragmentation
                 fragment_type = 28
+
+                # Write first datagram which has 0x80 set on the second byte
                 n0 = h0 & 0xE0 | fragment_type
                 n1 = h0 & 0x1F
                 yield self.write_nal_fragment(dst, header, chr(n0) + chr(0x80 | n1) + nal_data[1:self.PS-1], end=False)
+
+                # Write intermediate datagrams
                 nal_data = nal_data[self.PS-1:]
                 while len(nal_data) > self.PS-2:
                     yield self.write_nal_fragment(dst, header, chr(n0) + chr(n1) + nal_data[:self.PS-2], end=False)
                     nal_data = nal_data[self.PS-2:]
+
+                # Write first datagram which has 0x40 set on the second byte
                 yield self.write_nal_fragment(dst, header, chr(n0) + chr(0x40 | n1) + nal_data, end=True)
 
     @gen.coroutine
     def write_nal_fragment(self, dst, header, data, end=True):
-        print "writing nal to dst", len(data)
+        payload_type = 96 # H.264
         mark = 0x80 if end else 0 
-        head = struct.pack("!BBHII", 0x80, 96 | mark, self.seq, self.ts, 0)
-        self.seq += 1
-        self.rlogo.write(repr(head + data) + '\n')
+        head = struct.pack("!BBHII", 0x80, payload_type | mark, self.seq_num, self.timestamp, 0)
+        self.seq_num += 1
         yield self.write_back(dst, header, head + data)
 
 

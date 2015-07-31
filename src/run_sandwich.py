@@ -66,7 +66,7 @@ if __name__ == "__main__":
     sh.register_layer(xss_layer, "xss")
     http_layer.register_child(xss_layer, "javascript")
 
-    video_layer = video.H264NalLayer(log_prefix="/tmp/video", passthrough=False)
+    video_layer = video.H264NalLayer()
     sh.register_layer(video_layer, "h264")
     udp_layer.register_child(video_layer, 40000)
 
