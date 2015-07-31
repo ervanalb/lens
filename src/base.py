@@ -264,18 +264,21 @@ class PipeLayer(NetLayer):
     def __init__(self):
         super(PipeLayer, self).__init__()
         self.sps = {}
+        self.debug = False
 
     @gen.coroutine
     def write(self, dst, header, payload):
-        print "PIPE>", len(payload)
+        if self.debug:
+            print "PIPE>", len(payload)
         conn_id = header[self.CONN_ID_KEY]
         if conn_id not in self.sps:
             self.sps[conn_id] = subprocess.Popen(self.COMMAND, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 
         #self.sps[conn_id].stdin.write(payload)
         output, _stderr = self.sps[conn_id].communicate(input=payload)
-        print "Pipe stderr: ", _stderr
-        print "PIPE<", len(output)
+        if self.debug:
+            print "Pipe stderr: ", _stderr
+            print "PIPE<", len(output)
         del self.sps[conn_id]
         yield self.write_back(dst, header, output)
 

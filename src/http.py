@@ -24,6 +24,7 @@ class HTTPLayer(NetLayer):
     def __init__(self, *args, **kwargs):
         super(HTTPLayer, self).__init__(*args, **kwargs)
         self.connections = {}
+        self.debug = False
 
     def match_child(self, src, header, key):
         if "http_headers" not in header:
@@ -69,8 +70,11 @@ class HTTPLayer(NetLayer):
             headers = MultiOrderedDict()
             try:
                 req = httputil.parse_request_start_line(req_line.strip())
+                if self.debug and False: 
+                    print "HTTP Info: parsed request start line"
             except httputil.HTTPInputError:
-                print "Malformed request start line: '%s'" % req_line
+                if req_line != "":
+                    print "HTTP Error: Malformed request start line: '%s'" % req_line
                 req_line = yield
                 continue
             while True:
@@ -129,14 +133,17 @@ class HTTPLayer(NetLayer):
             headers = MultiOrderedDict()
             try:
                 resp = httputil.parse_response_start_line(start_line.strip())
+                if self.debug and False: 
+                    print "HTTP Info: parsed response start line"
             except httputil.HTTPInputError:
-                print "Malformed response start line: '%s'" % start_line
+                if start_line != "":
+                    print "HTTP Error: Malformed response start line: '%s'" % start_line
                 start_line = yield
                 continue
             while True:
                 header_line = yield
                 if header_line is None:
-                    print "Terminated early?"
+                    print "HTTP Warning: Terminated early?"
                     return
                 if not header_line.strip():
                     break
@@ -213,7 +220,8 @@ class HTTPLayer(NetLayer):
             output += line
             #yield self.write_back(dst, conn, line)
 
-        print "Headers:", output
+        if self.debug:
+            print "HTTP write >> ", output
 
         #yield self.write_back(dst, conn, "\r\n")
         #yield self.write_back(dst, conn, data)
@@ -222,6 +230,10 @@ class HTTPLayer(NetLayer):
         output += data
         yield self.write_back(dst, conn, output)
         #yield self.write_back(dst, conn, None)
+
+    def do_debug(self):
+        self.debug = not self.debug
+        return "TCP Debug: {}".format("on" if self.debug else "off")
 
 
 class ImageFlipLayer(PipeLayer):
