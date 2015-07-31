@@ -1,14 +1,33 @@
 import collections
 import dpkt
-import ethernet 
+from base import NetLayer
 
 import tornado.gen as gen
 
-class IPv4Layer(ethernet.NetLayer):
-    IN_TYPES = {"Ethernet"}
-    OUT_TYPE = "IP"
+#def make_list_commands(list_name):
+#    def do_add(self, ip=None):
+#        list_obj = getattr(self, list_name)
+#        if ip.lower() == "all":
+#            list_obj = None
+#        elif list_obj is None:
+#            list_obj = {ip}
+#        else:
+#            list_obj.add(ip)
+#        setattr(self, list_name, list_obj)
+#
+#    def do_rm(self, ip=None):
+#        list_obj = getattr(self, list_name)
+#        if ip.lower() == "all":
+#            list_obj.clear()
+#        elif list_obj is None:
+#            list_obj = {ip}
+#        else:
+#            list_obj.add(ip)
+#        setattr(self, list_name, list_obj)
+#    return do_add, do_rm
 
-    SINGLE_CHILD = False
+class IPv4Layer(NetLayer):
+    NAME = "ip"
 
     @staticmethod
     def pretty_ip(ip):
@@ -17,23 +36,17 @@ class IPv4Layer(ethernet.NetLayer):
     def wire_ip(ip):
         return "".join([chr(int(x)) for x in ip.split(".")])
 
-    def __init__(self, addr_filter=None):
-        self.next_id = 0
-
+    def __init__(self):
+        self.next_ids = {}
         self.seen_ips = collections.defaultdict(set)
-        self.passthru_ips = set()
-        self.filter_ips = set()
-        self.block_ips = set()
-
-        if addr_filter is not None:
-            self.fitler_ips = set(addr_filter)
+        self.protocol_stats = collections.Counter()
 
         super(IPv4Layer, self).__init__()
 
-    def match_child(self, src, header, key):
-        return key == header["ip_p"]
+    def match(self, src, header):
+        return header["eth_type"] == dpkt.ethernet.ETH_TYPE_IP
 
-    @gen.coroutine
+    # coroutine
     def on_read(self, src, header, payload):
         # It already comes parsed by dpkt from EthernetLayer
         #pkt = dpkt.ip.IP(payload) 
@@ -47,68 +60,47 @@ class IPv4Layer(ethernet.NetLayer):
         self.seen_ips[src_ip].add(header["eth_src"])
         self.seen_ips[dst_ip].add(header["eth_dst"])
 
-        match = lambda ip_list: ip_list is None or src_ip in ip_list or dst_ip in ip_list
+        self.protocol_stats[pkt.p] += 1
 
-        if match(self.block_ips):
-            pass # Drop the packet -- maybe we should respond with an ICMP message?
-        elif match(self.passthru_ips):
-            yield self.passthru(src, header, payload)
-        elif match(self.filter_ips);
-            yield self.bubble(src, header, pkt.data)
-        else:
-            yield self.passthru(src, header, payload)
-
-    @gen.coroutine
+    # coroutine
     def write(self, dst, header, payload):
+        src_mac = header["eth_src"]
+        if src_Mac not in self.next_ids:
+            # Keep track of per-MAC IP packet ID's
+            # Generate one randomly if we need to
+            self.next_ids[src_mac] = header.get("ip_id", random.randint(0, 0xFFFF))
+
         pkt = dpkt.ip.IP(
-                id=header.get("ip_id", self.next_id),
+                id=self.next_ids[src_mac],
                 dst=self.wire_ip(header["ip_dst"]),
                 src=self.wire_ip(header["ip_src"]),
                 p=header["ip_p"])
-        if "ip_id" not in header:
-            self.next_id = (self.next_id + 1) & 0xFFFF
+
+        self.next_ids[src_mac] = (self.next_ids[src_mac] + 1) & 0xFFFF
         pkt.data = payload
         pkt.len += len(payload)
-        yield self.write_back(dst, header, str(pkt))
 
-    def do_help(self):
-        return """Ethernet Layer:
-        help - print this message
-        list - list IP addresses seen & corresponding MAC addresses
-        status - print current status
-        passthru - set an IP address to 'passthru' mode
-        passthru all - make the default behavior passthru
-        unpassthru -
-        block - Silently drop packets of given IP
-        unblock -
-        filter - Pass packets on to next layer(s)
-        unfilter -
-        """
+        return self.write_back(dst, header, str(pkt))
+    
+    def do_protos(*args):
+        """List statistics about protocols."""
+        for protocol, count in self.protocol_stats.most_common():
+            try:
+                print " {} - {}".format(count, dpkt.ip.IP.get_proto(protocol).__name__)
+            except KeyError:
+                print " {} - ({})".format(count, protocol)
 
-    def do_list(self):
-        output = ""
-        for ip, macs in self.seen_ips.items():
-            output += "%s\t%s\n" % (ip, "\t".join(macs))
-        return output
+class IPv4FilterLayer(NetLayer):
+    """ Pass all IPv4 packets with a given IP through """
+    NAME = "ipv4_filter"
 
-    do_passthru, do_unpassthru = make_list_commands("passthru_ips")
-    def do_passthru(self, ip):
+    def __init__(self, ips=None
+        super(IPv4FilterLayer, self).__init__()
+ 
+        if ips is None:
+            ips = []
+        self.ips = ips
 
-def make_list_commands(list_name):
-    def do_add(self, ip):
-        list_obj = getattr(self, list_name)
-        if ip.lower() == "all":
-            list_obj
-        elif list_obj is None:
-            list_obj = {ip}
-        else:
-            list_obj.add(ip)
-    def do_rm(self, ip):
-        list_obj = getattr(self, list_name)
-        if ip.lower() == "all":
-            list_obj
-        elif list_obj is None:
-            list_obj = {ip}
-        else:
-            list_obj.add(ip)
-    return do_add, do_rm
+    def match(self, src, header):
+        return header["ip_src"] in self.ips  or header["ip_dst"] in self.ips
+

@@ -26,10 +26,6 @@ class LinkLayer(object):
     # Not actually a subclass of NetLayer, but exposes a similar interface for consistency
     SNAPLEN=1550
 
-    IN_TYPES = set()
-    OUT_TYPE = "Raw"
-    SINGLE_CHILD = True
-
     def __init__(self, streams):
         self.streams = streams
         self.child = None
@@ -64,9 +60,7 @@ class LinkLayer(object):
 
 
 class EthernetLayer(NetLayer):
-    IN_TYPES = {"Raw"}
-    OUT_TYPE = "Ethernet"
-    SINGLE_CHILD = False
+    NAME = "eth"
 
     def __init__(self, *args, **kwargs):
         super(EthernetLayer, self).__init__(*args, **kwargs)
@@ -78,9 +72,6 @@ class EthernetLayer(NetLayer):
     @staticmethod
     def wire_mac(mac):
         return "".join([chr(int(x, 16)) for x in mac.split(":")])
-
-    def match_child(self, src, header, key):
-        return key == header["eth_type"]
 
     @gen.coroutine
     def on_read(self, src, header, data):
@@ -120,9 +111,9 @@ class EthernetLayer(NetLayer):
         return output
 
 def attach(nic):
-    result = subprocess.call(["ifconfig",nic,"up","promisc"])
+    result = subprocess.call(["ip","link","set","up","promisc","on","dev",nic])
     if result:
-        raise Exception("ifconfig {0} return exit code {1}".format(nic,result))
+        raise Exception("ip link dev {0} returned exit code {1}".format(nic,result))
     sock = socket.socket(socket.AF_PACKET,socket.SOCK_RAW,socket.htons(ETH_P_ALL))
     sock.bind((nic,0))
     sock.setblocking(0)
@@ -139,7 +130,12 @@ def eth_callback(layer, src, fd, events):
                 raise
             return
 
-def build_ethernet_loop(alice_nic="enp0s20u1", bob_nic="enp0s20u2"):
+def build_dummy_loop(*args, **kwargs):
+    io_loop = tornado.ioloop.IOLoop.instance()
+    link_layer = LinkLayer([])
+    return io_loop, link_layer
+
+def build_ethernet_loop(alice_nic="tapa", bob_nic="tapb"):
     alice_sock = attach(alice_nic)
     bob_sock = attach(bob_nic)
 

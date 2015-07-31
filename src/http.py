@@ -3,13 +3,8 @@ import zlib
 from base import NetLayer, MultiOrderedDict, PipeLayer
 from tornado import gen, httputil
 
-
-#class HTTPLayer(TCPApplicationLayer):
 class HTTPLayer(NetLayer):
-    IN_TYPES = {"TCP App"}
-    OUT_TYPE = "HTTP"
-
-    SINGLE_CHILD = False
+    NAME = "http"
 
     ENCODERS = {
         "gzip": zlib.compress,
@@ -22,13 +17,10 @@ class HTTPLayer(NetLayer):
     CONN_ID_KEY = "tcp_conn"
 
     def __init__(self, *args, **kwargs):
-        super(HTTPLayer, self).__init__(*args, **kwargs)
+        self.ports = kwargs.pop("ports", {})
         self.connections = {}
 
-    def match_child(self, src, header, key):
-        if "http_headers" not in header:
-            return False
-        return key in header["http_headers"].last("content-type", "")
+        super(HTTPLayer, self).__init__(*args, **kwargs)
 
     @gen.coroutine
     def on_read(self, src, conn, data):
@@ -69,8 +61,11 @@ class HTTPLayer(NetLayer):
             headers = MultiOrderedDict()
             try:
                 req = httputil.parse_request_start_line(req_line.strip())
+                if self.debug and False: 
+                    print "HTTP Info: parsed request start line"
             except httputil.HTTPInputError:
-                print "Malformed request start line: '%s'" % req_line
+                if req_line != "":
+                    print "HTTP Error: Malformed request start line: '%s'" % req_line
                 req_line = yield
                 continue
             while True:
@@ -129,14 +124,17 @@ class HTTPLayer(NetLayer):
             headers = MultiOrderedDict()
             try:
                 resp = httputil.parse_response_start_line(start_line.strip())
+                if self.debug and False: 
+                    print "HTTP Info: parsed response start line"
             except httputil.HTTPInputError:
-                print "Malformed response start line: '%s'" % start_line
+                if start_line != "":
+                    print "HTTP Error: Malformed response start line: '%s'" % start_line
                 start_line = yield
                 continue
             while True:
                 header_line = yield
                 if header_line is None:
-                    print "Terminated early?"
+                    print "HTTP Warning: Terminated early?"
                     return
                 if not header_line.strip():
                     break
@@ -213,7 +211,8 @@ class HTTPLayer(NetLayer):
             output += line
             #yield self.write_back(dst, conn, line)
 
-        print "Headers:", output
+        if self.debug:
+            print "HTTP write >> ", output
 
         #yield self.write_back(dst, conn, "\r\n")
         #yield self.write_back(dst, conn, data)
@@ -225,13 +224,35 @@ class HTTPLayer(NetLayer):
 
 
 class ImageFlipLayer(PipeLayer):
+    NAME = "image-flip"
     COMMAND = ["convert", "-flip", "-", "-"]
 
+    def match(self, src, header):
+        if "http_headers" not in header:
+            return False
+        return "image" in header["http_headers"].last("content-type", "")
+
 class XSSInjectorLayer(NetLayer):
-    SINGLE_CHILD = True
+    NAME = "xss"
+    def match(self, src, header):
+        if "http_headers" not in header:
+            return False
+        return "javascript" in header["http_headers"].last("content-type", "")
 
     @gen.coroutine
     def write(self, dst, header, payload):
         output = payload + "\nalert('xss');\n"
         yield self.write_back(dst, header, output)
+
+class CloudToButtLayer(NetLayer):
+    NAME = "clout2butt"
+    def match(self, src, header):
+        if "http_headers" not in header:
+            return False
+        return "text" in header["http_headers"].last("content-type", "")
+
+    # coroutine
+    def write(self, dst, header, payload):
+        butt_data = payload.replace("cloud", "my butt")
+        return self.write_back(dst, header, butt_data)
 
