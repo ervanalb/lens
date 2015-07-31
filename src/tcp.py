@@ -111,26 +111,18 @@ class TimestampEstimator(object):
         return int((local_time - l) * self.rate + s) & 0xFFFFFFFF
         #return int(local_time * self.rate + self.offset)
 
-class TCPPassthruLayer(NetLayer):
+class TCPFilterLayer(NetLayer):
     """ Simple TCP layer which will pass packets on certain TCP ports through """
-    IN_TYPES = {"IP"}
-    OUT_TYPE = "IP"
-    SINGLE_CHILD = True
+    NAME = "tcp_filter"
+    IN_TYPES = {"TCP"}
+    OUT_TYPE = "TCP"
 
-    def __init__(self, ports=None):
-        super(TCPPassthruLayer, self).__init__()
-        if ports is None:
-            ports = []
+    def __init__(self, ports = []):
+        super(TCPFilterLayer, self).__init__()
         self.ports = ports
 
-    @gen.coroutine
-    def on_read(self, src, header, payload):
-        pkt = payload
-
-        if pkt.sport in self.ports or pkt.dport in self.ports:
-            yield self.passthru(src, header, payload)
-        else:
-            yield self.bubble(src, header, payload)
+    def match(self, src, header):
+        return header["tcp_conn"][1][1] in self.ports or header["tcp_conn"][0][1] in self.ports
 
 # Half Connection attributes
 # From the perspective of sending packets back through the link
@@ -146,22 +138,20 @@ class TCPPassthruLayer(NetLayer):
 # data to send
 
 class TCPLayer(NetLayer):
+    NAME = "tcp"
     IN_TYPES = {"IP"}
     OUT_TYPE = "TCP"
-    SINGLE_CHILD = False
     DEFAULT_MSS = 536
     MAX_MSS = 1400
-
-    def match_child(self, src, header, key):
-        if "tcp_conn" not in header:
-            return False
-        return key == header["tcp_conn"][1][1] or key == header["tcp_conn"][0][1]
 
     def __init__(self, debug=False):
         self.connections = {}
         self.debug = debug
         self.timers = collections.defaultdict(TimestampEstimator)
         super(TCPLayer, self).__init__()
+
+    def match(self, src, header):
+        return header["ip_p"] == dpkt.ip.IP_PROTO_TCP
 
     def do_debug(self):
         self.debug = not self.debug

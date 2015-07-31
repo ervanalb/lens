@@ -1,13 +1,12 @@
 import dpkt
-import ethernet 
+from ethernet import NetLayer
 
 import tornado.gen as gen
 
-class IPv4Layer(ethernet.NetLayer):
+class IPv4Layer(NetLayer):
+    NAME = "ip"
     IN_TYPES = {"Ethernet"}
     OUT_TYPE = "IP"
-
-    SINGLE_CHILD = False
 
     @staticmethod
     def pretty_ip(ip):
@@ -16,15 +15,14 @@ class IPv4Layer(ethernet.NetLayer):
     def wire_ip(ip):
         return "".join([chr(int(x)) for x in ip.split(".")])
 
-    def __init__(self, addr_filter=None):
-        self.addr_filter = addr_filter
+    def __init__(self):
         self.next_id = 0
         super(IPv4Layer, self).__init__()
 
-    def match_child(self, src, header, key):
-        return key == header["ip_p"]
+    def match(self, src, header):
+        return header["eth_type"] == dpkt.ethernet.ETH_TYPE_IP
 
-    @gen.coroutine
+    # coroutine
     def on_read(self, src, header, payload):
         # It already comes parsed by dpkt from EthernetLayer
         #pkt = dpkt.ip.IP(payload) 
@@ -34,12 +32,9 @@ class IPv4Layer(ethernet.NetLayer):
         header["ip_dst"] = dst_ip = self.pretty_ip(pkt.dst)
         header["ip_src"] = src_ip = self.pretty_ip(pkt.src)
         header["ip_p"] = pkt.p
-        if self.addr_filter is None or src_ip in self.addr_filter or dst_ip in self.addr_filter:
-            yield self.bubble(src, header, pkt.data)
-        else:
-            yield self.passthru(src, header, payload)
+        return self.bubble(src, header, pkt.data)
 
-    @gen.coroutine
+    # coroutine
     def write(self, dst, header, payload):
         pkt = dpkt.ip.IP(
                 id=header.get("ip_id", self.next_id),
@@ -50,5 +45,18 @@ class IPv4Layer(ethernet.NetLayer):
             self.next_id = (self.next_id + 1) & 0xFFFF
         pkt.data = payload
         pkt.len += len(payload)
-        yield self.write_back(dst, header, str(pkt))
+        return self.write_back(dst, header, str(pkt))
+
+class IPv4FilterLayer(NetLayer):
+    NAME = "ipv4_filter"
+    """ Pass all IPv4 packets with a given IP through """
+    IN_TYPES = {"IP"}
+    OUT_TYPE = "IP"
+
+    def __init__(self, ips = []):
+        super(IPv4FilterLayer, self).__init__()
+        self.ips = ips
+
+    def match(self, src, header):
+        return header["ip_src"] in self.ips or header["ip_dst"] in self.ips
 
