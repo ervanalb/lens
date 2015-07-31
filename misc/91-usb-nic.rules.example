@@ -1,0 +1,2 @@
+SUBSYSTEM=="net", ATTRS{address}=="a0:ce:c8:03:97:67", NAME="tapa"
+SUBSYSTEM=="net", ATTRS{address}=="a0:ce:c8:02:ad:72", NAME="tapb"
