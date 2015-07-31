@@ -37,6 +37,7 @@ class FfmpegLayer(NetLayer):
         self.loop = False
         self.record = False
 
+        self.frames_skipped = 0
         self.recorded_buffer = []
         self.replay_buffer = []
 
@@ -52,7 +53,13 @@ class FfmpegLayer(NetLayer):
         self.last_header = header
 
         if self.record:
-            self.recorded_buffer.append(data)
+            if not self.recorded_buffer:
+                if header["nal_type"] == 5: # I-frame
+                    self.recorded_buffer.append(data)
+                else:
+                    self.frames_skipped += 1
+            else:
+                self.recorded_buffer.append(data)
 
         if self.loop:
             if not self.replay_buffer:
@@ -81,12 +88,13 @@ class FfmpegLayer(NetLayer):
     def do_record(self, *args):
         if self.record:
             self.record = False
-            return "ffmpeg recorded {} frames ({} kB) of video.".format(len(self.recorded_buffer), sum(map(len, self.recorded_buffer)) / 1024)
+            return "ffmpeg recorded {} frames ({} kB) of video ({} skipped).".format(len(self.recorded_buffer), sum(map(len, self.recorded_buffer)) / 1024, self.frames_skipped)
         elif self.loop:
             return "ffmpeg cannot record while looping."
         else:
             self.record = True
             self.recorded_buffer = []
+            self.frames_skipped = 0
             return "ffmpeg is recording video..."
 
     def do_loop(self, *args):
@@ -115,6 +123,7 @@ class H264NalLayer(NetLayer):
         self.frag_unit_started = False
         self.rencoded_buffer = ''
         self.fragment_buffer = ''
+        self.nal_type = 0
         self.make_toggle("datamosh")
 
     #def match(self, src, header):
@@ -150,6 +159,7 @@ class H264NalLayer(NetLayer):
 
                 # Unfragmented
                 if fragment_type < 24:
+                    header["nal_type"] = n0 & 0x1F
                     h264_fragment = self.UNIT + nal_unit
                     yield self.bubble(src, header, h264_fragment)
 
@@ -157,10 +167,12 @@ class H264NalLayer(NetLayer):
                 elif fragment_type == 28:
                     # Start of fragment:
                     if n1 & 0x80:
+                        self.nal_type = n1 & 0x1F
                         self.fragment_buffer = self.UNIT + chr((n0 & 0xE0) | (n1 & 0x1F)) + nal_unit[2:]
 
                     # End of a fragment
                     elif n1 & 0x40 and self.fragment_buffer is not None: 
+                        header["nal_type"] = self.nal_type
                         yield self.bubble(src, header, self.fragment_buffer)
                         self.fragment_buffer = None
 
