@@ -18,6 +18,8 @@ class FfmpegLayer(NetLayer):
     COMMAND = ["/usr/bin/sh", "../misc/haxed.sh"]
     #COMMAND = ["tee","out.h264"]
     #COMMAND = ["cat"]
+    UNIT1 = '\x00\x00\x01'
+    UNIT2 = '\x00\x00\x00\x01'
 
     def __init__(self, *args, **kwargs):
         #TODO: This only supports one stream/connection
@@ -45,7 +47,9 @@ class FfmpegLayer(NetLayer):
         self.last_src = None
         self.last_header = None
 
-        self.has_sent_data = False
+        self.prefill_in = 110
+        self.ffmpeg_ready = False
+        self.incoming_ffmpeg = ""
 
     @gen.coroutine
     def on_read(self, src, header, data):
@@ -63,21 +67,34 @@ class FfmpegLayer(NetLayer):
         try:
             self.ffmpeg.stdin.write(data)
             self.ffmpeg.stdin.flush()
+            if not self.ffmpeg_ready:
+                yield self.write_back(self.route(src, header), header, data)
         except IOError:
             print "ERROR! FFMPEG is too slow"
 
     def ffmpeg_read_handler(self, fd, events):
-        new_data = self.ffmpeg.stdout.read()
+        # TODO neaten up this code
+        self.incoming_ffmpeg += self.ffmpeg.stdout.read()
+        self.incoming_ffmpeg = self.incoming_ffmpeg.replace(self.UNIT2, self.UNIT1)
+        frames = self.incoming_ffmpeg.split(self.UNIT1)
+        assert frames[0] == ''
+        self.incoming_ffmpeg = self.UNIT2 + frames[-1]
+        for frame in frames[1:-1]:
+            if self.prefill_in:
+                self.prefill_in -= 1
+                continue
 
-        if new_data and self.last_src is not None and self.last_header is not None:
+            if not self.ffmpeg_ready:
+                if ord(frame[0]) & 0x1F == 7:
+                    self.ffmpeg_ready = True
+                    print "FFMPEG running."
+                else:
+                    continue
+
             dst = self.route(self.last_src, self.last_header)
-            f = self.write_back(dst, self.last_header, new_data)
+            f = self.write_back(dst, self.last_header, self.UNIT2 + frame)
             if f:
                 self.ioloop.add_future(f, lambda f: None)
-
-        if self.has_sent_data == False:
-            print "Started sending ffmpeg stream"
-            self.has_sent_data = True
 
     def do_record(self, *args):
         if self.record:
@@ -176,6 +193,7 @@ class H264NalLayer(NetLayer):
         if self.UNIT not in self.rencoded_buffer:
             return
 
+        # TODO also accept 0x00 0x00 0x01 as UNIT
         usplit = self.rencoded_buffer.split(self.UNIT)
         self.rencoded_buffer = self.UNIT + usplit[-1]
 
