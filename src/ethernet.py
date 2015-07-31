@@ -66,8 +66,11 @@ class LinkLayer(object):
 class EthernetLayer(NetLayer):
     IN_TYPES = {"Raw"}
     OUT_TYPE = "Ethernet"
-
     SINGLE_CHILD = False
+
+    def __init__(self, *args, **kwargs):
+        super(EthernetLayer, self).__init__(*args, **kwargs)
+        self.seen_macs = {k: set() for k in self.routing.keys()}
 
     @staticmethod
     def pretty_mac(mac):
@@ -91,6 +94,7 @@ class EthernetLayer(NetLayer):
             "eth_src": self.pretty_mac(pkt.src),
             "eth_type": pkt.type,
         }
+        self.seen_macs[src].add(header["eth_src"])
         yield self.bubble(src, header, pkt.data)
 
     @gen.coroutine
@@ -101,6 +105,19 @@ class EthernetLayer(NetLayer):
                 type=header["eth_type"],
                 data=payload)
         yield self.write_back(dst, header, str(pkt))
+
+    def do_help(self):
+        return """Ethernet Layer:
+        help - print this message
+        list - list MAC addresses seen"""
+
+    def do_list(self):
+        output = ""
+        for src, macs in self.seen_macs.items():
+            output += "Source %d:\n" % src
+            for mac in macs:
+                output += " - %s\n" % mac
+        return output
 
 def attach(nic):
     result = subprocess.call(["ifconfig",nic,"up","promisc"])
