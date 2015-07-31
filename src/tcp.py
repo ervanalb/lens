@@ -19,13 +19,6 @@ TCP_FLAGS = {
     "U": dpkt.tcp.TH_URG
 }
 
-hosts = {
-    "18.238.0.97": "H",
-    "18.111.96.68": "Z",
-    "18.238.7.58": "D"
-}
-
-
 def tcp_dump_flags(flagstr):
     out = 0
     for f in flagstr:
@@ -164,7 +157,7 @@ class TCPLayer(NetLayer):
             return False
         return key == header["tcp_conn"][1][1] or key == header["tcp_conn"][0][1]
 
-    def __init__(self, debug=True):
+    def __init__(self, debug=False):
         self.connections = {}
         self.debug = debug
         self.timers = collections.defaultdict(TimestampEstimator)
@@ -172,17 +165,19 @@ class TCPLayer(NetLayer):
 
     def do_debug(self):
         self.debug = not self.debug
-        return "TCP Debug: {}".format("on" if debug else "off")
+        return "TCP Debug: {}".format("on" if self.debug else "off")
 
     def do_list(self):
         print "Open TCP Connections ({}):".format(len(self.connections))
         for conn_id, conn in sorted(self.connections.items(), key=lambda x: x[1]["count"]):
-            fdict = conn.copy()
-            fdict['sseq'] = fdict['sender']['seq'] - fdict['sender']['seq_start']
-            fdict['sack'] = fdict['sender']['sack'] - fdict['sender']['ack_start']
-            fdict['rseq'] = fdict['reciever']['seq'] - fdict['reciever']['seq_start']
-            fdict['rack'] = fdict['reciever']['ack'] - fdict['reciever']['ack_start']
-            print " - {sender[ip_src]}:{sender[sport]} [{sender[state]};S={sseq};A={sack}]-> {reciever[ip_src]}:{reciever[sport]} [{reciever[state]};S={rseq};A={rack}]".format(**fdict)
+            fdict = {}
+            sender = conn[conn["sender"]]
+            receiver = conn[conn["receiver"]]
+            fdict['sseq'] = sender['seq'] - sender['seq_start']
+            fdict['sack'] = sender['ack'] - sender['ack_start']
+            fdict['rseq'] = receiver['seq'] - receiver['seq_start']
+            fdict['rack'] = receiver['ack'] - receiver['ack_start']
+            print " - {sender[ip_src]}:{sender[sport]} [{sender[state]};S={sseq};A={sack}]-> {receiver[ip_src]}:{receiver[sport]} [{receiver[state]};S={rseq};A={rack}]".format(sender=sender, receiver=receiver, **fdict)
 
     @gen.coroutine
     def on_read(self, src, header, payload):
@@ -203,8 +198,8 @@ class TCPLayer(NetLayer):
             conn = self.connections[conn_id]
         elif conn_id not in self.connections:
             # conn_id[0] corresponds to conn[conn["server"]]
-            # conn_id[1] corresponds to conn[conn["reciever"]]
-            conn = {src: {}, dst: {}, "count": len(self.connections), "sender": src, "reciever": dst}
+            # conn_id[1] corresponds to conn[conn["receiver"]]
+            conn = {src: {}, dst: {}, "count": len(self.connections), "sender": src, "receiver": dst}
             self.connections[conn_id] = conn
         else:
             conn = self.connections[conn_id]
@@ -232,9 +227,9 @@ class TCPLayer(NetLayer):
                     "AB"[src], "->",
                     conn["count"],
                     time.clock(), 
-                    hosts.get(host_ip, "?"),
+                    "", # hostname
                     pkt.sport,
-                    hosts.get(dest_ip, "?"),
+                    "", # hostname
                     pkt.dport,
                     tcp_read_flags(pkt.flags),
                     pkt.seq - dst_conn['seq_start'] if 'seq_start' in dst_conn else '-',
@@ -301,7 +296,7 @@ class TCPLayer(NetLayer):
                 dst_conn["syn_options"][dpkt.tcp.TCP_OPT_WSCALE] = tcp_opts_dict[dpkt.tcp.TCP_OPT_WSCALE]
 
 
-# A           | D_sender    | D_reciever  | B
+# A           | D_sender    | D_receiver  | B
 # ------------------------------------------------------------
 # Connection setup: A sends a SYN packet
 # SYN-SENT    |             | SYN-SENT    |             ; -> SYN ->
@@ -315,7 +310,7 @@ class TCPLayer(NetLayer):
 # A sends a FIN packet on an ESTABLISHED connection
 # (TODO)
 
-# A           | D_sender    | D_reciever  | B
+# A           | D_sender    | D_receiver  | B
 # ------------------------------------------------------------
 # Sa+1 , -    | -    , Sa+1 | Sa+1 , -    |             ; -> SYN -> (Sa,-)
 # Sa+1 , -    | Sb   , Sa+1 | Sa+1 , Sb+1 | Sb+1 , Sa+1 ; SYNACK <- (Sb, Sa+1)

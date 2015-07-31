@@ -19,6 +19,7 @@ class FfmpegLayer(NetLayer):
     #COMMAND = ["cat"]
 
     def __init__(self, *args, **kwargs):
+        #TODO: This only supports one stream/connection
         command = kwargs.pop("command", self.COMMAND)
         ffmpeg_log = kwargs.pop("log", "/dev/null")
 
@@ -85,6 +86,7 @@ class H264NalLayer(NetLayer):
     PS = 1396
 
     def __init__(self, *args, **kwargs):
+        #TODO: This only supports one stream/connection
         super(H264NalLayer, self).__init__(*args, **kwargs)
         self.seq_num = 0
         self.frag_unit_started = False
@@ -153,7 +155,7 @@ class H264NalLayer(NetLayer):
         # Assert that there wasn't data before the first H.624 frame
         # Otherwise, drop it with a warning
         if usplit[0] != '':
-            print "Warning: received invalid H.624 frame"
+            print "Warning: received invalid H.264 frame"
 
         for nal_data in usplit[1:-1]:
             # First byte can be used to determine frame type (I, P, B)
@@ -188,8 +190,10 @@ class H264NalLayer(NetLayer):
     def write_nal_fragment(self, dst, header, data, end=True):
         payload_type = 96 # H.264
         mark = 0x80 if end else 0 
-        head = struct.pack("!BBHII", 0x80, payload_type | mark, self.seq_num, header.get("nal_timestamp", 0), 0)
-        self.seq_num += 1
+        timestamp = header.get("nal_timestamp", 0) & 0xFFFFFFFF # 4 bytes
+        head = struct.pack("!BBHII", 0x80, payload_type | mark, self.seq_num, timestamp, 0)
+        self.seq_num = (self.seq_num + 1) & 0xFFFFFFFF # 4 bytes
+
         yield self.write_back(dst, header, head + data)
 
 

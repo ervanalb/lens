@@ -40,16 +40,16 @@ if __name__ == "__main__":
     sh.register_layer(udp_layer, "udp")
     ipv4_layer.register_child(udp_layer, dpkt.ip.IP_PROTO_UDP)
 
-    #ssh_filter_layer = tcp.TCPPassthruLayer(ports=[22])
-    #ipv4_layer.register_child(ssh_filter_layer, dpkt.ip.IP_PROTO_TCP)
+    ssh_filter_layer = tcp.TCPPassthruLayer(ports=[22])
+    ipv4_layer.register_child(ssh_filter_layer, dpkt.ip.IP_PROTO_TCP)
 
     tcp_layer = tcp.TCPLayer(debug=False)
-    #sh.register_layer(tcp_layer, "tcp")
-    #ssh_filter_layer.register_child(tcp_layer)
+    sh.register_layer(tcp_layer, "tcp")
+    ssh_filter_layer.register_child(tcp_layer)
 
     http_lbf_layer = base.LineBufferLayer()
     tcp_layer.register_child(http_lbf_layer, 8000)
-    #tcp_layer.register_child(http_lbf_layer, 80)
+    tcp_layer.register_child(http_lbf_layer, 80)
 
     http_layer = http.HTTPLayer()
     sh.register_layer(http_layer, "http")
