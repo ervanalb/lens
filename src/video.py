@@ -12,9 +12,10 @@ def binprint(d):
     print " ".join(["{0:02x}".format(ord(c)) for c in d])
 
 class FfmpegLayer(NetLayer):
+    NAME="ffmpeg"
     #COMMAND = ["/usr/bin/ffmpeg", "-y", "-i",  "pipe:0", "-vf", "negate, vflip", "-f", "h264", "pipe:1"]
     #COMMAND = ["/usr/bin/ffmpeg", "-y", "-f", "h264", "-i", "-", "-vf", "negate, vflip", "-f", "h264", "-"]
-    COMMAND = ["/usr/bin/sh", "./misc/haxed.sh"]
+    COMMAND = ["/usr/bin/sh", "../misc/haxed.sh"]
     #COMMAND = ["tee","out.h264"]
     #COMMAND = ["cat"]
 

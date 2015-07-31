@@ -61,11 +61,11 @@ if __name__ == "__main__":
     ipv4_filter_layer.register_child(tcp_layer)
 
     ssh_filter_layer = tcp.TCPFilterLayer(ports=[22])
-    sh.register_layer_instance(ssh_filter_layer)
+    sh.register_layer_instance(ssh_filter_layer, "ssh_filter")
     tcp_layer.register_child(ssh_filter_layer)
 
     http_filter_layer = tcp.TCPFilterLayer(ports=[80, 8000, 8080])
-    sh.register_layer_instance(http_filter_layer)
+    sh.register_layer_instance(http_filter_layer, "http_filter")
     tcp_layer.register_child(http_filter_layer)
 
     http_lbf_layer = base.LineBufferLayer()
@@ -92,16 +92,16 @@ if __name__ == "__main__":
     http_layer.register_child(xss_layer)
 
     video_filter_layer = udp.UDPFilterLayer(ports=[40000])
-    sh.register_layer_instance(video_filter_layer)
+    sh.register_layer_instance(video_filter_layer, "video_filter")
     udp_layer.register_child(video_filter_layer)
 
     video_layer = video.H264NalLayer()
     sh.register_layer_instance(video_layer)
     video_filter_layer.register_child(video_layer)
 
-    #ffmpeg_layer = video.FfmpegLayer()
-    #sh.register_layer_instance(ffmpeg_layer, "ffmpeg")
-    #video_layer.register_child(ffmpeg_layer)
+    ffmpeg_layer = video.FfmpegLayer()
+    sh.register_layer_instance(ffmpeg_layer)
+    video_layer.register_child(ffmpeg_layer)
 
     try:
         loop.start()
