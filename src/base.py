@@ -12,8 +12,9 @@ class NetLayer(object):
     IN_TYPES = set()
     OUT_TYPE = None
 
-    def __init__(self):
+    def __init__(self, debug=False):
         self.children = []
+        self.debug = debug
 
     def register_child(self, child):
         self.children.append(child)
@@ -91,6 +92,24 @@ class NetLayer(object):
         # Shell command handler for 'help'
         return "This command is undocumented."
 
+    def make_toggle(self, name, default=False):
+        # Generates property & shell command to toggle the property
+        # Usage: (in __init__)
+        # self.make_toggle("prop")
+        def _do_toggle(*args):
+            v = not getattr(self, name)
+            setattr(self, name, v)
+            return "{} {}: {}".format(self.__class__.__name__, name, "on" if v else "off")
+
+        setattr(self, "do_" + name, _do_toggle)
+        setattr(self, name, default)
+        return default
+
+    def do_debug(self, *args):
+        # Shell command handler for 'debug' to toggle self.debug
+        self.debug = not self.debug
+        return "Debug: {}".format("on" if self.debug else "off")
+
 class LineBufferLayer(NetLayer):
     # Buffers incoming data line-by-line
     NAME = "linebuffer"
@@ -150,14 +169,6 @@ class LineBufferLayer(NetLayer):
                 del self.enabled[conn_id]
                 del self.buffers[conn_id]
         yield self.close_bubble(src, header)
-
-class CloudToButtLayer(NetLayer):
-    NAME = "cloud2butt"
-
-    # coroutine
-    def write(self, dst, header, payload):
-        butt_data = payload.replace("cloud", "my butt")
-        return self.write_back(dst, header, butt_data)
 
 #TODO
 def connect(prev, layer_list, check_types=False, **global_kwargs):
@@ -263,18 +274,21 @@ class PipeLayer(NetLayer):
     def __init__(self):
         super(PipeLayer, self).__init__()
         self.sps = {}
+        self.debug = False
 
     @gen.coroutine
     def write(self, dst, header, payload):
-        print "PIPE>", len(payload)
+        if self.debug:
+            print "PIPE>", len(payload)
         conn_id = header[self.CONN_ID_KEY]
         if conn_id not in self.sps:
             self.sps[conn_id] = subprocess.Popen(self.COMMAND, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 
         #self.sps[conn_id].stdin.write(payload)
         output, _stderr = self.sps[conn_id].communicate(input=payload)
-        print "Pipe stderr: ", _stderr
-        print "PIPE<", len(output)
+        if self.debug:
+            print "Pipe stderr: ", _stderr
+            print "PIPE<", len(output)
         del self.sps[conn_id]
         return self.write_back(dst, header, output)
 

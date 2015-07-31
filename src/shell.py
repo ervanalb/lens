@@ -76,11 +76,14 @@ class CommandShell(object):
         return name
 
     def unregister_layer_instance(self, layer):
-        l_n = {v: k for k, v in self.layers.items()}[layer]
+        l_n = self.layer_name(layer)
         del self.layers[l_n]
         for c in layer.children:
             self.unregister_layer_instance(c)
         print "Deleted '{}'".format(l_n)
+
+    def layer_name(self, layer):
+        return {v: k for k, v in self.layers.items()}[layer]
 
     def add_layer(self, parent, layername, *args):
         ls = {l.NAME: l for l in self.available_layers}
@@ -94,5 +97,14 @@ class CommandShell(object):
         self.unregister_layer_instance(l)
         parent.unregister_child(l)
 
-    global_layer_cmds = {"add": add_layer, "del": del_layer}
+    def show_layer(self, layername):
+        def printer(l, level = 0):
+            l_n = self.layer_name(l)
+            print "|  " * level + "|- " + l_n
+            for child in l.children:
+                printer(child, level + 1)
+
+        printer(layername)
+
+    global_layer_cmds = {"add": add_layer, "del": del_layer, "show": show_layer}
 

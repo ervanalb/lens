@@ -146,16 +146,11 @@ class TCPLayer(NetLayer):
 
     def __init__(self, debug=False):
         self.connections = {}
-        self.debug = debug
         self.timers = collections.defaultdict(TimestampEstimator)
         super(TCPLayer, self).__init__()
 
     def match(self, src, header):
         return header["ip_p"] == dpkt.ip.IP_PROTO_TCP
-
-    def do_debug(self):
-        self.debug = not self.debug
-        return "TCP Debug: {}".format("on" if self.debug else "off")
 
     def do_list(self):
         print "Open TCP Connections ({}):".format(len(self.connections))
@@ -167,7 +162,7 @@ class TCPLayer(NetLayer):
             fdict['sack'] = sender['ack'] - sender['ack_start']
             fdict['rseq'] = receiver['seq'] - receiver['seq_start']
             fdict['rack'] = receiver['ack'] - receiver['ack_start']
-            print " - {sender[ip_src]}:{sender[sport]} [{sender[state]};S={sseq};A={sack}]-> {receiver[ip_src]}:{receiver[sport]} [{receiver[state]};S={rseq};A={rack}]".format(sender=sender, receiver=receiver, **fdict)
+            print " - {sender[ip_src]}:{sender[sport]} [{sender[state]} S={sseq} A={sack}] --> {receiver[ip_src]}:{receiver[sport]} [{receiver[state]} S={rseq} A={rack}]".format(sender=sender, receiver=receiver, **fdict)
 
     @gen.coroutine
     def on_read(self, src, header, payload):
@@ -328,7 +323,8 @@ class TCPLayer(NetLayer):
                 src_conn["state"] = "LAST-ACK"
                 if dst_conn.get("state") == "ESTABLISHED":
                     dst_conn["state"] = "FIN-WAIT-1"
-                    # Forward FIN
+                    # Forward FIN - nope! send a close msg
+                    yield self.close_bubble(src, {"tcp_conn": conn_id, "reset": False})
                     yield self.write_packet(dst, conn_id, flags="FA")
                     dst_conn["seq"] += 1
 
@@ -344,13 +340,14 @@ class TCPLayer(NetLayer):
                 yield self.write_packet(src, conn_id, flags="A")
 
                 # Bubble up close event
-                yield self.close_bubble(src, {"tcp_conn": conn_id})
+                yield self.close_bubble(src, {"tcp_conn": conn_id, "reset": False})
                 #TODO: prune connection obj
 
         elif pkt.flags & dpkt.tcp.TH_ACK:
             if src_conn.get("state") == "SYN-RECIEVED":
                 src_conn["state"] = "ESTABLISHED"
-                print "established", src
+                if self.debug:
+                    print "TCP established complete", src
 
             if src_conn.get("state") == "ESTABLISHED":
                 src_conn["seq"] = max(src_conn.get('seq'), pkt.ack)
@@ -361,15 +358,16 @@ class TCPLayer(NetLayer):
             if src_conn.get("state") == "LAST-ACK":
                 src_conn["state"] = "CLOSED"
 
-                # Bubble up close event
-                yield self.close_bubble(src, {"tcp_conn": conn_id})
+                # Bubble up close event - already closed!
+                #yield self.close_bubble(src, {"tcp_conn": conn_id, "reset": False})
                 #TODO: prune connection obj
 
 
         if pkt.flags & dpkt.tcp.TH_RST:
             if "state" in src_conn and dst_conn.get("state"): # If it's already been reset, just passthru
                 # This is a connection we're modifying
-                print "RST on MiTM connection", src_conn["state"], dst_conn.get("state")
+                if self.debug:
+                    print "RST on MiTM connection", src_conn["state"], dst_conn.get("state")
                 dst_conn["state"] = "RESET"
                 src_conn["state"] = "CLOSED"
                 if "seq" not in dst_conn:
@@ -381,15 +379,17 @@ class TCPLayer(NetLayer):
                     yield self.passthru(src, header, payload)
 
                 # Bubble up close event
-                yield self.close_bubble(src, header)
+                yield self.close_bubble(src, {"tcp_conn": conn_id, "reset": True})
                 #TODO: prune connection obj
             else:
                 # This isn't on a actively modified connection, passthru
-                print "RST passthru"
+                if self.debug:
+                    print "RST passthru"
                 yield self.passthru(src, header, payload)
 
         if "state" not in dst_conn: # Not handled
             yield self.passthru(src, header, payload)
+
 
     @gen.coroutine
     def write_packet(self, dst, conn_id, flags="A"):
@@ -465,3 +465,17 @@ class TCPLayer(NetLayer):
             while len(dst_conn["out_buffer"]) > 0:
                 yield self.write_packet(dst, header["tcp_conn"], flags="A")
         
+    @gen.coroutine
+    def on_close(self, dst, header):
+        # TODO - if the client initiates closing instead of the server
+        conn = self.connections[header["tcp_conn"]] 
+        dst_conn = conn[dst]
+        if header["reset"]:
+            pass
+        else:
+            pass
+            #if dst_conn["state"] == "FIN-WAIT-1":
+            #    # Forward FIN - nope! send a close msg
+            #    yield self.write_packet(dst, conn_id, flags="FA")
+            #    dst_conn["seq"] += 1
+        self.close_bubble(dst, conn)
