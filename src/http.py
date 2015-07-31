@@ -6,6 +6,7 @@ from tornado import gen, httputil
 
 #class HTTPLayer(TCPApplicationLayer):
 class HTTPLayer(NetLayer):
+    NAME = "http"
     IN_TYPES = {"TCP App"}
     OUT_TYPE = "HTTP"
 
@@ -227,6 +228,7 @@ class HTTPLayer(NetLayer):
 
 
 class ImageFlipLayer(PipeLayer):
+    NAME = "image-flip"
     COMMAND = ["convert", "-flip", "-", "-"]
 
     def match(self, src, header):
@@ -235,6 +237,7 @@ class ImageFlipLayer(PipeLayer):
         return "image" in header["http_headers"].last("content-type", "")
 
 class XSSInjectorLayer(NetLayer):
+    NAME = "xss"
     def match(self, src, header):
         if "http_headers" not in header:
             return False
@@ -246,6 +249,7 @@ class XSSInjectorLayer(NetLayer):
         yield self.write_back(dst, header, output)
 
 class CloudToButtLayer(NetLayer):
+    NAME = "clout2butt"
     def match(self, src, header):
         if "http_headers" not in header:
             return False
