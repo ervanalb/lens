@@ -19,6 +19,9 @@ class NetLayer(object):
         self.children.append(child)
         child.parent = self
 
+    def unregister_child(self, child):
+        self.children.remove(child)
+
     def resolve_child(self, src, header):
         for child in self.children:
             if child.match(src, header):
@@ -84,7 +87,7 @@ class NetLayer(object):
         # Given a message to port `dst`, determine which port it should have come from
         return self.routing[dst]
 
-    def do_help(self, *args):
+    def do_help(self, shell, *args):
         # Shell command handler for 'help'
         return "This command is undocumented."
 
