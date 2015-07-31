@@ -36,6 +36,7 @@ if __name__ == "__main__":
         udp.UDPFilterLayer,
         tcp.TCPLayer,
         tcp.TCPFilterLayer,
+        video.FfmpegLayer,
     ]
     sh.ioloop_attach(loop)
 
