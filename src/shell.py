@@ -54,10 +54,16 @@ class CommandShell(object):
         ioloop.add_handler(self.input_file.fileno(), self.handle_input, ioloop.READ)
         self.write_prompt()
 
-    def register_layer(self, layer, name):
-        name = name.lower()
-        if name in self.layers:
-            print "Warning: replacing layer '%s' in shell" % name
+    def register_layer(self, layer, basename = None):
+        if basename is None:
+            basename = layer.NAME
+        if basename in self.layers:
+            i=2
+            while True:
+                name = "{0}_{1}".format(basename, i)
+                if name not in self.layers:
+                    break
+        else:
+            name = basename
         self.layers[name] = layer
-
-
+        return name

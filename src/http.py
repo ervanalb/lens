@@ -9,8 +9,6 @@ class HTTPLayer(NetLayer):
     IN_TYPES = {"TCP App"}
     OUT_TYPE = "HTTP"
 
-    SINGLE_CHILD = False
-
     ENCODERS = {
         "gzip": zlib.compress,
     }
@@ -240,8 +238,6 @@ class ImageFlipLayer(PipeLayer):
     COMMAND = ["convert", "-flip", "-", "-"]
 
 class XSSInjectorLayer(NetLayer):
-    SINGLE_CHILD = True
-
     @gen.coroutine
     def write(self, dst, header, payload):
         output = payload + "\nalert('xss');\n"

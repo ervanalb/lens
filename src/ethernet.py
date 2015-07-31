@@ -28,7 +28,6 @@ class LinkLayer(object):
 
     IN_TYPES = set()
     OUT_TYPE = "Raw"
-    SINGLE_CHILD = True
 
     def __init__(self, streams):
         self.streams = streams
@@ -66,8 +65,7 @@ class LinkLayer(object):
 class EthernetLayer(NetLayer):
     IN_TYPES = {"Raw"}
     OUT_TYPE = "Ethernet"
-
-    SINGLE_CHILD = False
+    NAME = "eth"
 
     @staticmethod
     def pretty_mac(mac):
@@ -75,9 +73,6 @@ class EthernetLayer(NetLayer):
     @staticmethod
     def wire_mac(mac):
         return "".join([chr(int(x, 16)) for x in mac.split(":")])
-
-    def match_child(self, src, header, key):
-        return key == header["eth_type"]
 
     @gen.coroutine
     def on_read(self, src, header, data):

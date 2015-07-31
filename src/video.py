@@ -81,18 +81,22 @@ class FfmpegLayer(NetLayer):
 
 class H264NalLayer(NetLayer):
     # https://tools.ietf.org/html/rfc3984
-    SINGLE_CHILD = True
+    NAME = "h264"
     UNIT = "\x00\x00\x00\x01"
     PS = 1396
 
     def __init__(self, *args, **kwargs):
         #TODO: This only supports one stream/connection
+
         super(H264NalLayer, self).__init__(*args, **kwargs)
         self.seq_num = 0
         self.frag_unit_started = False
         self.rencoded_buffer = ''
         self.sent_iframe = False
         self.fragment_buffer = ''
+
+    #def match(self, src, header):
+    #    return self.port is None or header["udp_dport"] == self.port or header["udp_sport"] == self.port
 
     @gen.coroutine
     def on_read(self, src, header, data):
