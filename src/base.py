@@ -12,8 +12,9 @@ class NetLayer(object):
     IN_TYPES = set()
     OUT_TYPE = None
 
-    def __init__(self):
+    def __init__(self, debug=False):
         self.children = []
+        self.debug = debug
 
     def register_child(self, child):
         self.children.append(child)
@@ -88,6 +89,11 @@ class NetLayer(object):
         # Shell command handler for 'help'
         return "This command is undocumented."
 
+    def do_debug(self, *args):
+        # Shell command handler for 'debug' to toggle self.debug
+        self.debug = not self.debug
+        return "Debug: {}".format("on" if self.debug else "off")
+
 class LineBufferLayer(NetLayer):
     # Buffers incoming data line-by-line
     NAME = "linebuffer"
@@ -147,14 +153,6 @@ class LineBufferLayer(NetLayer):
                 del self.enabled[conn_id]
                 del self.buffers[conn_id]
         yield self.close_bubble(src, header)
-
-class CloudToButtLayer(NetLayer):
-    NAME = "cloud2butt"
-
-    # coroutine
-    def write(self, dst, header, payload):
-        butt_data = payload.replace("cloud", "my butt")
-        return self.write_back(dst, header, butt_data)
 
 #TODO
 def connect(prev, layer_list, check_types=False, **global_kwargs):

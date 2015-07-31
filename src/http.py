@@ -20,14 +20,10 @@ class HTTPLayer(NetLayer):
     CONN_ID_KEY = "tcp_conn"
 
     def __init__(self, *args, **kwargs):
-        super(HTTPLayer, self).__init__(*args, **kwargs)
+        self.ports = kwargs.pop("ports", {})
         self.connections = {}
-        self.debug = False
 
-    def match_child(self, src, header, key):
-        if "http_headers" not in header:
-            return False
-        return key in header["http_headers"].last("content-type", "")
+        super(HTTPLayer, self).__init__(*args, **kwargs)
 
     @gen.coroutine
     def on_read(self, src, conn, data):
@@ -229,17 +225,34 @@ class HTTPLayer(NetLayer):
         yield self.write_back(dst, conn, output)
         #yield self.write_back(dst, conn, None)
 
-    def do_debug(self):
-        self.debug = not self.debug
-        return "TCP Debug: {}".format("on" if self.debug else "off")
-
 
 class ImageFlipLayer(PipeLayer):
     COMMAND = ["convert", "-flip", "-", "-"]
 
+    def match(self, src, header):
+        if "http_headers" not in header:
+            return False
+        return "image" in header["http_headers"].last("content-type", "")
+
 class XSSInjectorLayer(NetLayer):
+    def match(self, src, header):
+        if "http_headers" not in header:
+            return False
+        return "javascript" in header["http_headers"].last("content-type", "")
+
     @gen.coroutine
     def write(self, dst, header, payload):
         output = payload + "\nalert('xss');\n"
         yield self.write_back(dst, header, output)
+
+class CloudToButtLayer(NetLayer):
+    def match(self, src, header):
+        if "http_headers" not in header:
+            return False
+        return "text" in header["http_headers"].last("content-type", "")
+
+    # coroutine
+    def write(self, dst, header, payload):
+        butt_data = payload.replace("cloud", "my butt")
+        return self.write_back(dst, header, butt_data)
 

@@ -146,16 +146,11 @@ class TCPLayer(NetLayer):
 
     def __init__(self, debug=False):
         self.connections = {}
-        self.debug = debug
         self.timers = collections.defaultdict(TimestampEstimator)
         super(TCPLayer, self).__init__()
 
     def match(self, src, header):
         return header["ip_p"] == dpkt.ip.IP_PROTO_TCP
-
-    def do_debug(self):
-        self.debug = not self.debug
-        return "TCP Debug: {}".format("on" if self.debug else "off")
 
     def do_list(self):
         print "Open TCP Connections ({}):".format(len(self.connections))

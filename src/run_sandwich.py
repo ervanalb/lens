@@ -19,7 +19,7 @@ from base import l, connect, NetLayer
 if __name__ == "__main__":
     #addr = ["192.168.1.10"]
     addr = []
-    print "Capturing traffic to:", addr
+    #print "Capturing traffic to:", addr
 
     tap = driver.FakeTap()
 
@@ -60,24 +60,23 @@ if __name__ == "__main__":
     http_lbf_layer = base.LineBufferLayer()
     http_filter_layer.register_child(http_lbf_layer)
 
-    print_layer = base.PrintLayer()
-    http_lbf_layer.register_child(print_layer)
-#
-#    http_layer = http.HTTPLayer()
-#    sh.register_layer(http_layer, "http")
-#    http_lbf_layer.register_child(http_layer)
-#
-#    c2b_layer = base.CloudToButtLayer()
-#    sh.register_layer(c2b_layer, "c2b")
-#    http_layer.register_child(c2b_layer, "text")
-#
-#    img_layer = http.ImageFlipLayer()
-#    http_layer.register_child(img_layer, "image")
-#
-#    xss_layer = http.XSSInjectorLayer()
-#    sh.register_layer(xss_layer, "xss")
-#    http_layer.register_child(xss_layer, "javascript")
-#
+    #print_layer = base.PrintLayer()
+    #http_lbf_layer.register_child(print_layer)
+
+    http_layer = http.HTTPLayer()
+    sh.register_layer(http_layer, "http")
+    http_lbf_layer.register_child(http_layer)
+
+    c2b_layer = http.CloudToButtLayer()
+    sh.register_layer(c2b_layer, "c2b")
+    http_layer.register_child(c2b_layer)
+
+    img_layer = http.ImageFlipLayer()
+    http_layer.register_child(img_layer)
+
+    xss_layer = http.XSSInjectorLayer()
+    sh.register_layer(xss_layer, "xss")
+    http_layer.register_child(xss_layer)
 
     video_filter_layer = udp.UDPFilterLayer(ports=[40000])
     sh.register_layer(video_filter_layer)
@@ -86,10 +85,10 @@ if __name__ == "__main__":
     video_layer = video.H264NalLayer()
     sh.register_layer(video_layer)
     video_filter_layer.register_child(video_layer)
-#
-#    ffmpeg_layer = video.FfmpegLayer()
-#    sh.register_layer(ffmpeg_layer, "ffmpeg")
-#    video_layer.register_child(ffmpeg_layer)
+
+    ffmpeg_layer = video.FfmpegLayer()
+    sh.register_layer(ffmpeg_layer, "ffmpeg")
+    video_layer.register_child(ffmpeg_layer)
 
     try:
         loop.start()
