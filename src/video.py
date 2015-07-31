@@ -178,14 +178,14 @@ class H264NalLayer(NetLayer):
                         self.fragment_buffer = self.UNIT + chr((n0 & 0xE0) | (n1 & 0x1F)) + nal_unit[2:]
 
                     # End of a fragment
-                    elif n1 & 0x40 and self.fragment_buffer is not None: 
+                    elif n1 & 0x40 and self.fragment_buffer is not None:
+                        self.fragment_buffer += nal_unit[2:] 
                         yield self.bubble(src, header, self.fragment_buffer)
                         self.fragment_buffer = None
 
                     # Middle of a fragment
                     elif self.fragment_buffer is not None:
                         self.fragment_buffer += nal_unit[2:]
-
 
     @gen.coroutine
     def write(self, dst, header, data):
