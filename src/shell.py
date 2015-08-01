@@ -2,6 +2,7 @@ import base
 
 import fcntl
 import os
+from tornado.ioloop import IOLoop
 
 import tornado.ioloop
 
@@ -104,7 +105,6 @@ class CommandShell(object):
         if result is not None:
             self.output_file.write(str(result) + "\n")
         self.write_prompt()
-
 
     def register_layer_instance(self, layer, basename = None):
         if basename is None:

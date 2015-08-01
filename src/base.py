@@ -18,6 +18,7 @@ class LayerMeta(type):
 
 class NetLayer(object):
     __metaclass__ = LayerMeta
+
     routing = {
         1: 0,
         0: 1
