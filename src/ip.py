@@ -94,7 +94,7 @@ class IPv4FilterLayer(NetLayer):
     """ Pass all IPv4 packets with a given IP through """
     NAME = "ipv4_filter"
 
-    def __init__(self, ips=None
+    def __init__(self, ips=None):
         super(IPv4FilterLayer, self).__init__()
  
         if ips is None:

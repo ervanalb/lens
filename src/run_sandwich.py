@@ -14,8 +14,6 @@ import video
 
 import tornado.gen as gen
 
-from base import l, connect, NetLayer
-
 if __name__ == "__main__":
     #addr = ["192.168.1.10"]
     addr = []
@@ -49,9 +47,10 @@ if __name__ == "__main__":
     sh.register_layer_instance(ipv4_layer)
     eth_layer.register_child(ipv4_layer)
 
-    ipv4_filter_layer = ip.IPv4FilterLayer(filter_ips=addr)
-    sh.register_layer_instance(ipv4_filter_layer)
-    ipv4_layer.register_child(ipv4_filter_layer)
+    #ipv4_filter_layer = ip.IPv4FilterLayer(ips=addr)
+    #sh.register_layer_instance(ipv4_filter_layer)
+    #ipv4_layer.register_child(ipv4_filter_layer)
+    ipv4_filter_layer = ipv4_layer
 
     udp_layer = udp.UDPLayer()
     sh.register_layer_instance(udp_layer)
