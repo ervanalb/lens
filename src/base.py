@@ -249,14 +249,14 @@ class RecorderLayer(NetLayer):
         self.f = None
 
     def do_start(self, filename):
-        self.f = self.open(filename, "w")
+        self.f = open(filename, "w")
         self.byte_counter = 0
         self.packet_counter = 0
 
     def do_stop(self):
         if not self.f:
             raise Exception("Not recording!")
-        self.close()
+        self.f.close()
         self.f = None
         print "Recorded {0} packets ({1} bytes)".format(self.packet_counter, self.byte_counter)
 
