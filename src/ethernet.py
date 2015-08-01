@@ -97,12 +97,8 @@ class EthernetLayer(NetLayer):
                 data=payload)
         yield self.write_back(dst, header, str(pkt))
 
-    def do_help(self):
-        return """Ethernet Layer:
-        help - print this message
-        list - list MAC addresses seen"""
-
     def do_list(self):
+        """List MAC addresses that have sent data to attached NICs."""
         output = ""
         for src, macs in self.seen_macs.items():
             output += "Source %d:\n" % src

@@ -83,10 +83,6 @@ class NetLayer(object):
         # Given a message to port `dst`, determine which port it should have come from
         return self.routing[dst]
 
-    def do_help(self, shell, *args):
-        # Shell command handler for 'help'
-        return "This command is undocumented."
-
     def make_toggle(self, name, default=False):
         # Generates property & shell command to toggle the property
         # Usage: (in __init__)
@@ -101,6 +97,7 @@ class NetLayer(object):
         return default
 
     def do_debug(self, *args):
+        """Toggle debugging on this layer."""
         # Shell command handler for 'debug' to toggle self.debug
         self.debug = not self.debug
         return "Debug: {}".format("on" if self.debug else "off")

@@ -97,10 +97,10 @@ class CommandShell(object):
     def do_help(self, layer=None):
         """help (<layer>) - Display help."""
         def print_help(obj):
-            for key, value in obj.__class__.__dict__.items():
+            for key in sorted(dir(obj)):
                 if key.startswith(self.CMD_PREFIX):
                     cmd_name = key[len(self.CMD_PREFIX):]
-                    help_text = value.__doc__ or "(undocumented)"
+                    help_text = getattr(obj, key).__doc__ or "(undocumented)"
                     print "    {:8s} {}".format(cmd_name, help_text)
 
         if layer is None:

@@ -102,6 +102,7 @@ class FfmpegLayer(NetLayer):
                 self.ioloop.add_future(f, lambda f: None)
 
     def do_record(self, *args):
+        """Start/stop recording to use for looping."""
         if self.record:
             self.record = False
             return "ffmpeg recorded {} frames ({} kB) of video.".format(len(self.recorded_buffer), sum(map(len, self.recorded_buffer)) / 1024)
@@ -113,6 +114,7 @@ class FfmpegLayer(NetLayer):
             return "ffmpeg is recording video..."
 
     def do_loop(self, *args):
+        """Start/stop video looping, using recorded buffer."""
         if self.loop:
             self.loop = False
             return "ffmpeg is returning to normal video."

@@ -151,6 +151,7 @@ class TCPLayer(NetLayer):
         return header["ip_p"] == dpkt.ip.IP_PROTO_TCP
 
     def do_list(self):
+        """List open TCP connections."""
         print "Open TCP Connections ({}):".format(len(self.connections))
         for conn_id, conn in sorted(self.connections.items(), key=lambda x: x[1]["count"]):
             fdict = {}
