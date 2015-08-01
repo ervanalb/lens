@@ -3,6 +3,8 @@ import base
 import fcntl
 import os
 
+import tornado.ioloop
+
 class ShellQuit(Exception):
     pass
 
@@ -16,9 +18,13 @@ class CommandShell(object):
 
         self.layers = {}
         self.layer_classes = base.LayerMeta.layer_classes
-        self.ioloop = None
         self.input_buffer = ""
 
+        ioloop = tornado.ioloop.IOLoop.current()
+        ioloop.add_handler(0, self.handle_input, ioloop.READ)
+
+        #fcntl.fcntl(self.input_file.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
+        self.write_prompt()
         base.LayerMeta.instance_callback = self.instance_callback
 
     def instance_callback(self, layer_instance):
@@ -99,12 +105,6 @@ class CommandShell(object):
             self.output_file.write(str(result) + "\n")
         self.write_prompt()
 
-    def ioloop_attach(self, ioloop):
-        self.ioloop = ioloop
-        ioloop.add_handler(0, self.handle_input, ioloop.READ)
-
-        #fcntl.fcntl(self.input_file.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
-        self.write_prompt()
 
     def register_layer_instance(self, layer, basename = None):
         if basename is None:

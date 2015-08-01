@@ -15,15 +15,13 @@ import video
 import tornado.gen as gen
 
 if __name__ == "__main__":
-
     tap = driver.FakeTap()
-
-    loop, link_layer = ethernet.build_ethernet_loop()
-    #loop, link_layer = ethernet.build_dummy_loop()
     tap.mitm()
 
     sh = shell.CommandShell()
-    sh.ioloop_attach(loop)
+
+    loop, link_layer = ethernet.build_ethernet_loop()
+    #loop, link_layer = ethernet.build_dummy_loop()
 
     eth_layer = ethernet.EthernetLayer()
     sh.register_layer_instance(eth_layer)
