@@ -36,6 +36,11 @@ class LinkLayer(NetLayer):
         io_loop.add_handler(alice_sock.fileno(), self.alice_read, io_loop.READ)
         io_loop.add_handler(bob_sock.fileno(), self.bob_read, io_loop.READ)
 
+    # This layer is a SOURCE
+    # so it will never consume packets
+    def match(self, src, header):
+        return False
+
     @staticmethod
     def attach(nic):
         result = subprocess.call(["ip","link","set","up","promisc","on","dev",nic])
