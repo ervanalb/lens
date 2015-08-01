@@ -41,7 +41,7 @@ class FfmpegLayer(NetLayer):
         super(FfmpegLayer, self).__init__(*args, **kwargs)
 
         if cmd_name not in self.COMMANDS:
-            print "Invalid ffmpeg command name '{}', using cat. (valid: {})".format(cmd_name, " ".join(self.COMMANDS))
+            self.log("Invalid ffmpeg command name '{}', using cat. (valid: {})", cmd_name, " ".join(self.COMMANDS))
             cmd_name = "cat"
         else:
             self.log("ffmpeg using command '{}'".format(cmd_name))
@@ -80,7 +80,6 @@ class FfmpegLayer(NetLayer):
 
         pos = [0]
         def on_writable(fd, event):
-            print "write"
             if event & IOLoop.WRITE:
                 n = 0
                 n = os.write(fd, loop[pos[0]:]) + pos[0]
@@ -101,7 +100,7 @@ class FfmpegLayer(NetLayer):
             self.ffmpeg.stdin.write(data)
             self.ffmpeg.stdin.flush()
         except IOError:
-            print "ERROR! FFMPEG is too slow"
+            self.log("ERROR! FFMPEG is too slow")
 
         if not self.ffmpeg_ready:
             yield self.passthru(src, header, data)
@@ -123,7 +122,7 @@ class FfmpegLayer(NetLayer):
             if not self.ffmpeg_ready:
                 if ord(frame[0]) & 0x1F == 7:
                     self.ffmpeg_ready = True
-                    print "FFMPEG running."
+                    self.log("FFMPEG running.")
                 else:
                     continue
 
@@ -246,7 +245,7 @@ class H264NalLayer(NetLayer):
     def write(self, dst, header, data):
         conn = self.get_connection(header, incoming=False)
         if not conn:
-            print "H264: Invalid connection info in header, dropping packet!"
+            self.log("H264: Invalid connection info in header, dropping packet!")
             return
 
         conn["rencoded_buffer"] += data
@@ -260,7 +259,7 @@ class H264NalLayer(NetLayer):
         # Assert that there wasn't data before the first H.624 frame
         # Otherwise, drop it with a warning
         if usplit[0] != '':
-            print "Warning: received invalid H.264 frame"
+            self.log("Warning: received invalid H.264 frame")
 
         for nal_data in usplit[1:-1]:
             # First byte can be used to determine frame type (I, P, B)

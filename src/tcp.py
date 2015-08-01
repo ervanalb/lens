@@ -302,8 +302,7 @@ class TCPLayer(NetLayer):
 
             if src_conn.get("state") == "SYN-SENT":
                 src_conn["state"] = "ESTABLISHED"
-                if self.debug:
-                    self.log("established @ {}", src)
+                self.log("established @ {}", src)
                 # The ACK reply gets handled later on
                 
                 # Forward SYNACK
@@ -343,8 +342,7 @@ class TCPLayer(NetLayer):
         elif pkt.flags & dpkt.tcp.TH_ACK:
             if src_conn.get("state") == "SYN-RECIEVED":
                 src_conn["state"] = "ESTABLISHED"
-                if self.debug:
-                    self.log("TCP established complete @{}", src)
+                self.log("TCP established complete @{}", src)
 
             if src_conn.get("state") == "ESTABLISHED":
                 src_conn["seq"] = max(src_conn.get('seq'), pkt.ack)
@@ -363,8 +361,7 @@ class TCPLayer(NetLayer):
         if pkt.flags & dpkt.tcp.TH_RST:
             if "state" in src_conn and dst_conn.get("state"): # If it's already been reset, just passthru
                 # This is a connection we're modifying
-                if self.debug:
-                    self.log("RST on MiTM connection {} {}", src_conn["state"], dst_conn.get("state"))
+                self.log("RST on MiTM connection {} {}", src_conn["state"], dst_conn.get("state"))
                 dst_conn["state"] = "RESET"
                 src_conn["state"] = "CLOSED"
                 if "seq" not in dst_conn:
@@ -380,8 +377,7 @@ class TCPLayer(NetLayer):
                 #TODO: prune connection obj
             else:
                 # This isn't on a actively modified connection, passthru
-                if self.debug:
-                    self.log("RST passthru")
+                self.log("RST passthru")
                 yield self.passthru(src, header, payload)
 
         if "state" not in dst_conn: # Not handled

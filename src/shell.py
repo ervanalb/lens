@@ -36,7 +36,7 @@ class CommandShell(object):
             self.output_file.write("\r[{0:s}] {1}\n".format(layer_instance.NAME, message))
             self.write_prompt()
 
-        layer_instance.add_logger(_log_handler)
+        layer_instance.add_logger(_log_handler, debug_only=True)
 
     def write_prompt(self):
         self.output_file.write(self.prompt)

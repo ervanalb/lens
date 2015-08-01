@@ -61,8 +61,6 @@ class HTTPLayer(NetLayer):
             headers = MultiOrderedDict()
             try:
                 req = httputil.parse_request_start_line(req_line.strip())
-                if self.debug and False: 
-                    self.log("HTTP Info: parsed request start line")
             except httputil.HTTPInputError:
                 if req_line != "":
                     self.log("HTTP Error: Malformed request start line: '{}'", req_line)
@@ -124,8 +122,6 @@ class HTTPLayer(NetLayer):
             headers = MultiOrderedDict()
             try:
                 resp = httputil.parse_response_start_line(start_line.strip())
-                if self.debug and False: 
-                    self.log("HTTP Info: parsed response start line")
             except httputil.HTTPInputError:
                 if start_line != "":
                     self.log("HTTP Error: Malformed response start line: '{}'", start_line)
@@ -211,8 +207,7 @@ class HTTPLayer(NetLayer):
             output += line
             #yield self.write_back(dst, conn, line)
 
-        if self.debug:
-            self.log(">> {}", output)
+        self.log(">> {}", output)
 
         #yield self.write_back(dst, conn, "\r\n")
         #yield self.write_back(dst, conn, data)

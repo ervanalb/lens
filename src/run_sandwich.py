@@ -43,7 +43,7 @@ if __name__ == "__main__":
     sh.register_layer_instance(udp_layer)
     ipv4_filter_layer.register_child(udp_layer)
 
-    tcp_layer = tcp.TCPLayer(debug=False)
+    tcp_layer = tcp.TCPLayer()
     sh.register_layer_instance(tcp_layer)
     ipv4_filter_layer.register_child(tcp_layer)
 
