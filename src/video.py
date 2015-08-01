@@ -128,9 +128,7 @@ class FfmpegLayer(NetLayer):
                     continue
 
             dst = self.route(self.last_src, self.last_header)
-            f = self.write_back(dst, self.last_header, self.UNIT2 + frame)
-            if f:
-                self.ioloop.add_future(f, lambda f: None)
+            self.add_future(self.write_back(dst, self.last_header, self.UNIT2 + frame))
 
     def do_status(self):
         """Print current ffmpeg status"""
