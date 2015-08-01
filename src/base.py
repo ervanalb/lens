@@ -1,4 +1,5 @@
 import tornado.gen as gen
+from tornado.ioloop import IOLoop
 import subprocess
 
 class LayerMeta(type):
@@ -135,6 +136,14 @@ class NetLayer(object):
         # Shell command handler for 'debug' to toggle self.debug
         self.debug = not self.debug
         return "Debug: {}".format("on" if self.debug else "off")
+
+    def add_future(self, future):
+        if future is not None:
+            def result(f):
+                if f.exception():
+                    exc_type, exc_value, exc_traceback = f.exc_info()
+                    traceback.print_exception(exc_type, exc_value, exc_traceback)
+            IOLoop.instance().add_future(future, result)
 
 class LineBufferLayer(NetLayer):
     # Buffers incoming data line-by-line

@@ -3,8 +3,8 @@
 import socket
 import subprocess
 
-import tornado.ioloop
-import tornado.iostream
+from tornado.ioloop import IOLoop
+from tornado.iostream import IOStream
 
 from base import NetLayer
 
@@ -20,13 +20,13 @@ class LinkLayer(NetLayer):
         alice_sock = self.attach(alice_nic)
         bob_sock = self.attach(bob_nic)
 
-        io_loop = tornado.ioloop.IOLoop.instance()
+        io_loop = IOLoop.instance()
 
-        self.alice_stream = tornado.iostream.IOStream(alice_sock)
-        self.bob_stream = tornado.iostream.IOStream(bob_sock)
+        self.alice_stream = IOStream(alice_sock)
+        self.bob_stream = IOStream(bob_sock)
 
-        io_loop.add_handler(alice_sock.fileno(), self.alice_read, io_loop.READ)
-        io_loop.add_handler(bob_sock.fileno(), self.bob_read, io_loop.READ)
+        io_loop.add_handler(alice_sock.fileno(), self.alice_read, IOLoop.READ)
+        io_loop.add_handler(bob_sock.fileno(), self.bob_read, IOLoop.READ)
 
     # This layer is a SOURCE
     # so it will never consume packets
@@ -43,15 +43,13 @@ class LinkLayer(NetLayer):
         sock.setblocking(0)
         return sock
 
-    # coroutine
     def alice_read(self, fd, event):
         data = self.alice_stream.socket.recv(self.SNAPLEN)
-        return self.on_read(self.ALICE, {}, data[:-2])
+        self.add_future(self.on_read(self.ALICE, {}, data[:-2]))
 
-    # coroutine
     def bob_read(self, fd, event):
         data = self.bob_stream.socket.recv(self.SNAPLEN)
-        return self.on_read(self.BOB, {}, data[:-2])
+        self.add_future(self.on_read(self.BOB, {}, data[:-2]))
 
     # coroutine
     def write(self, dst, header, data):
