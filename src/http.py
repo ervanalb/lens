@@ -1,6 +1,7 @@
 import zlib
 
-from base import NetLayer, MultiOrderedDict, PipeLayer
+from base import NetLayer
+from util import MultiOrderedDict, PipeLayer
 from tornado import gen, httputil
 
 class HTTPLayer(NetLayer):

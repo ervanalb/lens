@@ -6,12 +6,13 @@ import driver
 import shell
 
 import base
-import link
 import ethernet 
+import http
 import ip
+import link
 import tcp
 import udp
-import http
+import util
 import video
 
 import tornado.gen as gen
@@ -55,11 +56,11 @@ if __name__ == "__main__":
     sh.register_layer_instance(http_filter_layer, "http_filter")
     tcp_layer.register_child(http_filter_layer)
 
-    http_lbf_layer = base.LineBufferLayer()
+    http_lbf_layer = util.LineBufferLayer()
     sh.register_layer_instance(http_lbf_layer)
     http_filter_layer.register_child(http_lbf_layer)
 
-    #print_layer = base.PrintLayer()
+    #print_layer = util.PrintLayer()
     #http_lbf_layer.register_child(print_layer)
 
     http_layer = http.HTTPLayer()
@@ -86,7 +87,7 @@ if __name__ == "__main__":
     sh.register_layer_instance(video_layer)
     video_filter_layer.register_child(video_layer)
 
-    recorder_layer = base.RecorderLayer()
+    recorder_layer = util.RecorderLayer()
     sh.register_layer_instance(recorder_layer)
     video_layer.register_child(recorder_layer)
 
