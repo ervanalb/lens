@@ -2,15 +2,19 @@ import tornado.gen as gen
 import subprocess
 
 class LayerMeta(type):
-    layers = {}
-    def __new__(meta, name, bases, dct):
-        klass = super(LayerMeta, meta).__new__(meta, name, bases, dct)
-        if "NAME" in dct:
-            meta.layers[dct["NAME"]] = klass
-        return klass
+    layer_classes = {}
+    instance_callback = None
 
     def __init__(cls, name, bases, dct):
+        if "NAME" in dct:
+            LayerMeta.layer_classes[dct["NAME"]] = cls
         super(LayerMeta, cls).__init__(name, bases, dct)
+
+    def __call__(cls, *args, **kwargs):
+        instance = super(LayerMeta, cls).__call__(*args, **kwargs)
+        if LayerMeta.instance_callback is not None:
+            LayerMeta.instance_callback(instance)
+        return instance
 
 class NetLayer(object):
     __metaclass__ = LayerMeta

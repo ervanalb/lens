@@ -1,3 +1,5 @@
+import base
+
 import fcntl
 import os
 
@@ -12,12 +14,22 @@ class CommandShell(object):
         self.input_file = open("/dev/stdin", "r")
         self.output_file = open("/dev/stdout", "w")
 
-        fcntl.fcntl(self.input_file.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
-
         self.layers = {}
-        self.available_layers = []
+        self.layer_classes = base.LayerMeta.layer_classes
         self.ioloop = None
         self.input_buffer = ""
+
+        base.LayerMeta.instance_callback = self.instance_callback
+
+    def instance_callback(self, layer_instance):
+        #print "register layer", layer_instance
+        #self.register_layer_instance(layer_instance)
+
+        def _log_handler(message):
+            self.output_file.write("\r" + message + "\n")
+            self.write_prompt()
+
+        layer_instance.add_logger(_log_handler)
 
     def write_prompt(self):
         self.output_file.write(self.prompt)
@@ -25,6 +37,7 @@ class CommandShell(object):
         self.output_file.flush()
 
     def handle_input(self, fd, events):
+        print 'input'
         new_data = self.input_file.read()
         self.input_buffer += new_data
 
@@ -89,6 +102,8 @@ class CommandShell(object):
     def ioloop_attach(self, ioloop):
         self.ioloop = ioloop
         ioloop.add_handler(0, self.handle_input, ioloop.READ)
+
+        #fcntl.fcntl(self.input_file.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
         self.write_prompt()
 
     def register_layer_instance(self, layer, basename = None):
@@ -145,8 +160,7 @@ class CommandShell(object):
 
     def do_add(self, parentname, layername, *args):
         """add <parent> <layername> (<args>...)- Create a layer."""
-        ls = {l.NAME: l for l in self.available_layers}
-        l = ls[layername](*args)
+        l = self.layer_classes[layername](*args)
         parent = self.layers[parentname]
         parent.register_child(l)
         n = self.register_layer_instance(l)

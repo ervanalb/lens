@@ -34,18 +34,18 @@ class FfmpegLayer(NetLayer):
 
     def __init__(self, *args, **kwargs):
         #TODO: This only supports one stream/connection
-        #ffmpeg_log = kwargs.pop("log", "/dev/null")
-        #ffmpeg_log = kwargs.pop("log", "/dev/stdin")
+
         ffmpeg_log = kwargs.pop("log", "/tmp/ffmpeg.log")
         cmd_name = kwargs.pop("cmd", "hack")
+
+        super(FfmpegLayer, self).__init__(*args, **kwargs)
 
         if cmd_name not in self.COMMANDS:
             print "Invalid ffmpeg command name '{}', using cat. (valid: {})".format(cmd_name, " ".join(self.COMMANDS))
             cmd_name = "cat"
         else:
-            print "ffmpeg using command '{}'".format(cmd_name)
+            self.log("ffmpeg using command '{}'".format(cmd_name))
 
-        super(FfmpegLayer, self).__init__(*args, **kwargs)
 
         ffmpeg_log = open(ffmpeg_log, "w")
 

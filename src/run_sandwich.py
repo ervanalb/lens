@@ -15,9 +15,6 @@ import video
 import tornado.gen as gen
 
 if __name__ == "__main__":
-    #addr = ["192.168.1.10"]
-    addr = []
-    #print "Capturing traffic to:", addr
 
     tap = driver.FakeTap()
 
@@ -26,7 +23,6 @@ if __name__ == "__main__":
     tap.mitm()
 
     sh = shell.CommandShell()
-    sh.available_layers = base.LayerMeta.layers.values()
     sh.ioloop_attach(loop)
 
     eth_layer = ethernet.EthernetLayer()
@@ -93,7 +89,7 @@ if __name__ == "__main__":
     sh.register_layer_instance(recorder_layer)
     video_layer.register_child(recorder_layer)
 
-    ffmpeg_layer = video.FfmpegLayer(cmd="hack")
+    ffmpeg_layer = video.FfmpegLayer(cmd="hack", debug=True)
     sh.register_layer_instance(ffmpeg_layer)
     recorder_layer.register_child(ffmpeg_layer)
 
