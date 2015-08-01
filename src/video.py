@@ -144,25 +144,48 @@ class H264NalLayer(NetLayer):
     DATAMOSH_RATE = 0.1
 
     def __init__(self, *args, **kwargs):
-        #TODO: This only supports one stream/connection
-
         super(H264NalLayer, self).__init__(*args, **kwargs)
-        self.seq_num = 0
-        self.frag_unit_started = False
-        self.rencoded_buffer = ''
-        self.fragment_buffer = ''
-        self.nal_type_buffer = 0
-        self.nal_timestamp = None
-        self.time_skew = 0
+        self.connections = {}
         self.make_toggle("datamosh")
 
     #def match(self, src, header):
     #    return self.port is None or header["udp_dport"] == self.port or header["udp_sport"] == self.port
 
+    def get_connection(self, header, incoming):
+        conn_id = None
+        if incoming:
+            if "udp_conn" in header:
+                conn_id = header["h264_conn"] = ("UDP", header["udp_conn"])
+            elif "tcp_conn" in header:
+                conn_id = header["h264_conn"] = ("TCP", header["tcp_conn"])
+        else:
+            conn_id = header["h264_conn"]
+
+        if conn_id is None:
+            return None
+
+        if incoming and (conn_id not in self.connections):
+            self.connections[conn_id] = {}
+
+        return self.connections.get(conn_id)
+
     @gen.coroutine
     def on_read(self, src, header, data):
         # Strip NAL encoding (supporting FU-A fragmentation) 
         # And pass on reconstructed H.264 fragments to the next layer
+
+        conn = self.get_connection(header, incoming=True)
+        if conn is None:
+            yield self.passthru(src, header, data)
+            return
+        elif len(conn) == 0:
+            conn["seq_num"] = 0
+            conn["frag_unit_started"] = False
+            conn["rencoded_buffer"] = ''
+            conn["fragment_buffer"] = ''
+            conn["nal_type_buffer"] = 0
+            conn["nal_timestamp"] = None
+            conn["time_skew"] = 0
 
         # Drop packets less than 12 bytes silently
         if len(data) >= 12: #and data[0x2b] == '\xe0':
@@ -171,8 +194,8 @@ class H264NalLayer(NetLayer):
             # https://tools.ietf.org/html/rfc3984#section-5.1
             flags, payload_type, seq_num, timestamp, ident = struct.unpack("!BBHII", hdr)
             header["nal_timestamp"] = timestamp
-            if self.nal_timestamp is None:
-                self.nal_timestamp = timestamp
+            if conn["nal_timestamp"] is None:
+                conn["nal_timestamp"] = timestamp
 
             # The 8th bit of payload_type is the 'marker bit' flag
             # Move it to the 9th bit of `flags` & remove from `payload_type`
@@ -199,34 +222,39 @@ class H264NalLayer(NetLayer):
                 elif fragment_type == 28:
                     # Start of fragment:
                     if n1 & 0x80:
-                        self.nal_type_buffer = n1 & 0x1F
-                        self.fragment_buffer = self.UNIT + chr((n0 & 0xE0) | (n1 & 0x1F)) + nal_unit[2:]
+                        conn["nal_type_buffer"] = n1 & 0x1F
+                        conn["fragment_buffer"] = self.UNIT + chr((n0 & 0xE0) | (n1 & 0x1F)) + nal_unit[2:]
 
                     # End of a fragment
                     #header["nal_type"] = self.nal_type
-                    elif n1 & 0x40 and self.fragment_buffer is not None:
-                        header["nal_type"] = self.nal_type_buffer
-                        self.fragment_buffer += nal_unit[2:] 
-                        yield self.bubble(src, header, self.fragment_buffer)
-                        self.fragment_buffer = None
-                        self.nal_type_buffer = None
+                    elif n1 & 0x40 and conn["fragment_buffer"] is not None:
+                        header["nal_type"] = conn["nal_type_buffer"]
+                        conn["fragment_buffer"] += nal_unit[2:] 
+                        yield self.bubble(src, header, conn["fragment_buffer"])
+                        conn["fragment_buffer"] = None
+                        conn["nal_type_buffer"] = None
 
                     # Middle of a fragment
-                    elif self.fragment_buffer is not None:
-                        self.fragment_buffer += nal_unit[2:]
+                    elif conn["fragment_buffer"] is not None:
+                        conn["fragment_buffer"] += nal_unit[2:]
 
                 if 'nal_type' in header:
-                    self.time_skew = timestamp - self.nal_timestamp
+                    conn["time_skew"] = timestamp - conn["nal_timestamp"]
 
     @gen.coroutine
     def write(self, dst, header, data):
-        self.rencoded_buffer += data
-        if self.UNIT not in self.rencoded_buffer:
+        conn = self.get_connection(header, incoming=False)
+        if not conn:
+            print "H264: Invalid connection info in header, dropping packet!"
+            return
+
+        conn["rencoded_buffer"] += data
+        if self.UNIT not in conn["rencoded_buffer"]:
             return
 
         # TODO also accept 0x00 0x00 0x01 as UNIT
-        usplit = map(lambda x: x[1:] if x and x[0] == '\x00' else x, self.rencoded_buffer.split(self.UNIT))
-        self.rencoded_buffer = self.UNIT + usplit[-1]
+        usplit = map(lambda x: x[1:] if x and x[0] == '\x00' else x, conn["rencoded_buffer"].split(self.UNIT))
+        conn["rencoded_buffer"] = self.UNIT + usplit[-1]
 
         # Assert that there wasn't data before the first H.624 frame
         # Otherwise, drop it with a warning
@@ -244,7 +272,7 @@ class H264NalLayer(NetLayer):
                     continue
 
             if h0 & 0x1F in {5, 1}: # IDR's & Coded slices increment timestamp
-                self.nal_timestamp += self.TS_INCR
+                conn["nal_timestamp"] += self.TS_INCR
 
             # TODO:  Re-generate timestamps
 
@@ -271,18 +299,20 @@ class H264NalLayer(NetLayer):
 
     @gen.coroutine
     def write_nal_fragment(self, dst, header, data, end=True):
+        conn = self.get_connection(header, incoming=False)
         payload_type = 96 # H.264
         mark = 0x80 if end else 0 
         #timestamp = header.get("nal_timestamp", 0) & 0xFFFFFFFF # 4 bytes
-        timestamp = self.nal_timestamp & 0xFFFFFFFF
-        head = struct.pack("!BBHII", 0x80, payload_type | mark, self.seq_num, timestamp, 0)
-        self.seq_num = (self.seq_num + 1) & 0xFFFF # 2 bytes
+        timestamp = conn["nal_timestamp"] & 0xFFFFFFFF
+        head = struct.pack("!BBHII", 0x80, payload_type | mark, conn["seq_num"], timestamp, 0)
+        conn["seq_num"] = (conn["seq_num"] + 1) & 0xFFFF # 2 bytes
 
         yield self.write_back(dst, header, head + data)
 
     def do_skew(self):
         """Print the current time skew from the source video (dropped frames)."""
-        return "Skew: {} frames".format(self.time_skew / 3600)
+        for conn_id, conn in self.connections.items():
+            return "{} - Skew: {} frames".format(conn_id, conn["time_skew"] / 3600)
 
 
 

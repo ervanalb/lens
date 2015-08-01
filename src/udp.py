@@ -4,6 +4,13 @@ import dpkt
 
 from tornado import gen
 
+# A UDP connection is not as well-defined as in TCP
+# But it's still a useful construct
+def udp_connection_id(pkt, header):
+    # Generate a tuple representing the stream
+    # ((ip, port), (ip, port))
+    return tuple(sorted(((header["ip_src"], pkt.sport), (header["ip_dst"], pkt.dport))))
+
 class UDPLayer(NetLayer):
     NAME = "udp"
     seen_ports = set()
@@ -17,6 +24,8 @@ class UDPLayer(NetLayer):
 
         header["udp_sport"] = pkt.sport
         header["udp_dport"] = pkt.dport
+
+        header["udp_conn"] = udp_connection_id(pkt, header)
 
         return self.bubble(src, header, pkt.data)
 

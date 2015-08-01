@@ -1,3 +1,6 @@
+import fcntl
+import os
+
 class ShellQuit(Exception):
     pass
 
@@ -9,23 +12,41 @@ class CommandShell(object):
         self.input_file = open("/dev/stdin", "r")
         self.output_file = open("/dev/stdout", "w")
 
+        fcntl.fcntl(self.input_file.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
+
         self.layers = {}
         self.available_layers = []
         self.ioloop = None
+        self.input_buffer = ""
 
     def write_prompt(self):
         self.output_file.write(self.prompt)
+        self.output_file.write(self.input_buffer)
         self.output_file.flush()
 
     def handle_input(self, fd, events):
-        input_line = self.input_file.readline()
+        new_data = self.input_file.read()
+        self.input_buffer += new_data
+
+        if new_data == "": # Ctrl+D or something
+            self.input_buffer = ""
+            self.handle_command("")
+
+        while "\n" in self.input_buffer:
+            i = self.input_buffer.index("\n") + 1
+            line, self.input_buffer = self.input_buffer[:i], self.input_buffer[i:]
+            self.handle_command(line)
+
+    def handle_command(self, input_line):
         arguments = input_line.split()
-        layer, command = None, None
 
         if len(arguments) == 0:
+            if "\n" not in input_line:
+                self.output_file.write("\n")
             self.write_prompt()
             return
 
+        layer, command = None, None
         command = arguments.pop(0).lower()
 
         get_cmd_fn = lambda obj, name: getattr(obj, self.CMD_PREFIX + name, None)

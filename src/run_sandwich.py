@@ -26,17 +26,7 @@ if __name__ == "__main__":
     tap.mitm()
 
     sh = shell.CommandShell()
-    sh.available_layers = [
-        ethernet.EthernetLayer,
-        base.PrintLayer,
-        ip.IPv4Layer,
-        ip.IPv4FilterLayer,
-        udp.UDPLayer,
-        udp.UDPFilterLayer,
-        tcp.TCPLayer,
-        tcp.TCPFilterLayer,
-        video.FfmpegLayer,
-    ]
+    sh.available_layers = base.LayerMeta.layers.values()
     sh.ioloop_attach(loop)
 
     eth_layer = ethernet.EthernetLayer()
