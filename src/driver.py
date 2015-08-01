@@ -65,7 +65,7 @@ class Tap:
     def set_fault(self,relays):
         assert self.dev.ctrl_transfer(VENDOR_WRITE,CTRL_SET_FAULT,relays,0)==0
 
-    def heartbeat(self, ticks):
+    def heartbeat(self, ticks = 0):
         assert self.dev.ctrl_transfer(VENDOR_WRITE,CTRL_HEARTBEAT, ticks, 0)==0
 
     def passthru(self):
@@ -76,6 +76,12 @@ class Tap:
         self.set_relays(0xAAAA)
         self.set_fault(0x5555)
         self.set_led(True)
+
+    def start_accel(self):
+        self.write_reg_8(0x2A, 0x19)
+
+    def get_accel(self):
+        return (self.read_reg_16(1), self.read_reg_16(3), self.read_reg_16(5))
 
 if __name__=='__main__':
     d=Tap()
