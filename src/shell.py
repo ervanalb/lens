@@ -131,11 +131,11 @@ class CommandShell(object):
         n = self.register_layer_instance(l)
         print "Registered '{}'".format(n)
 
-    def do_del(self, parent, layername):
-        """del <parent> <layername> - Delete a layer."""
+    def do_del(self, layername):
+        """del <layername> - Delete a layer."""
         l = self.layers[layername]
         self.unregister_layer_instance(l)
-        parent.unregister_child(l)
+        l.parent.unregister_child(l)
 
     def do_show(self, layername):
         """show <layername> - Show tree of connected layers."""
