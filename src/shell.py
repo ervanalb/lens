@@ -45,7 +45,7 @@ class CommandShell(object):
                 command = arguments.pop(0).lower()
 
             if layer in self.layers:
-                if command is None:
+                if command is None or command == "help":
                     # Get help for `layer` if no command was specified
                     result = self.do_help(layer)
                 else:

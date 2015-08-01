@@ -1,5 +1,7 @@
 import collections
 import dpkt
+import random
+
 from base import NetLayer
 
 import tornado.gen as gen

@@ -7,6 +7,7 @@ import struct
 import subprocess
 import fcntl
 import os
+import socket
 
 def binprint(d):
     print " ".join(["{0:02x}".format(ord(c)) for c in d])
@@ -18,26 +19,57 @@ def get_script(path):
 
 class FfmpegLayer(NetLayer):
     NAME="ffmpeg"
-    #COMMAND = ["/usr/bin/ffmpeg", "-y", "-i",  "pipe:0", "-vf", "negate, vflip", "-f", "h264", "pipe:1"]
-    #COMMAND = ["/usr/bin/ffmpeg", "-y", "-f", "h264", "-i", "-", "-vf", "negate, vflip", "-f", "h264", "-"]
-    COMMAND = ["sh", get_script("../misc/haxed.sh")]
-    #COMMAND = ["tee","out.h264"]
-    #COMMAND = ["cat"]
+    COMMANDS = {
+        #"negflip": ["/usr/bin/ffmpeg", "-y", "-i",  "pipe:0", "-vf", "negate, vflip", "-f", "h264", "pipe:1"],
+        "negflip":  ["/usr/bin/ffmpeg", "-y", "-f", "h264", "-i", "-", "-vf", "negate, vflip", "-f", "h264", "-"],
+        "hack":     ["sh", get_script("../misc/haxed.sh")],
+        "layer":    ["/usr/bin/ffmpeg", "-y", "-f", "h264", "-i", "/tmp/ffmpeg.h264.fifo", "-i", "-", "-filter_complex", """
+            [1:v] crop=1/2*in_w:1/2*in_h:1/2*in_w:0 [loop];
+            [0:v] [loop] overlay=1/2*main_w:0 [output]""", "-map", "[output]", "-f", "h264", "-"],
+        "tee":      ["tee", "out.h264"],
+        "cat":      ["cat"]
+    }
     UNIT1 = '\x00\x00\x01'
     UNIT2 = '\x00\x00\x00\x01'
 
     def __init__(self, *args, **kwargs):
         #TODO: This only supports one stream/connection
-        command = kwargs.pop("command", self.COMMAND)
-        ffmpeg_log = kwargs.pop("log", "/dev/null")
+        #ffmpeg_log = kwargs.pop("log", "/dev/null")
+        #ffmpeg_log = kwargs.pop("log", "/dev/stdin")
+        ffmpeg_log = kwargs.pop("log", "/tmp/ffmpeg.log")
+        cmd_name = kwargs.pop("cmd", "hack")
+
+        if cmd_name not in self.COMMANDS:
+            print "Invalid ffmpeg command name '{}', using cat. (valid: {})".format(cmd_name, " ".join(self.COMMANDS))
+            cmd_name = "cat"
+        else:
+            print "ffmpeg using command '{}'".format(cmd_name)
 
         super(FfmpegLayer, self).__init__(*args, **kwargs)
 
+        fifo_path = "/tmp/ffmpeg.h264.fifo"
+        if os.path.exists(fifo_path):
+            os.unlink(fifo_path)
+        os.mkfifo(fifo_path)
+
         ffmpeg_log = open(ffmpeg_log, "w")
-        self.ffmpeg = subprocess.Popen(command, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=ffmpeg_log)
+
+        self.ffmpeg = subprocess.Popen(self.COMMANDS[cmd_name], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=ffmpeg_log)
 
         fcntl.fcntl(self.ffmpeg.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
         fcntl.fcntl(self.ffmpeg.stdin.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
+
+        if cmd_name == "layer":
+            #sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            #sock.connect(fifo_path)
+            #self.unmodified_fifo = os.open(fifo_path, os.O_WRONLY | os.O_NONBLOCK)
+            print "opened fifo"
+            self.unmodified_fifo = open(fifo_path, "w")
+            print "opened fifo"
+            #fcntl.fcntl(self.unmodified_fifo.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
+        else:
+            #self.unmodified_fifo = open("/dev/null", "w")
+            self.unmodified_fifo = None
 
         self.ioloop = IOLoop.instance()
         self.ioloop.add_handler(self.ffmpeg.stdout.fileno(), self.ffmpeg_read_handler, IOLoop.READ)
@@ -56,15 +88,23 @@ class FfmpegLayer(NetLayer):
         self.prefill_in = 110
         self.ffmpeg_ready = False
         self.incoming_ffmpeg = ""
+        self.fq = open('/tmp/t', 'w')
 
     @gen.coroutine
     def on_read(self, src, header, data):
         self.last_src = src
         self.last_header = header
 
+        if self.unmodified_fifo is not None:
+            try:
+                self.unmodified_fifo.write(data)
+                self.unmodified_fifo.flush()
+            except IOError:
+                print "error ffmpeg slow to read"
+
         if self.record:
             if not self.recorded_buffer:
-                if header["nal_type"] == 5: # I-frame
+                if header.get("nal_type", 0) == 5: # I-frame
                     self.recorded_buffer.append(data)
                 else:
                     self.frames_skipped += 1
@@ -79,17 +119,21 @@ class FfmpegLayer(NetLayer):
         try:
             self.ffmpeg.stdin.write(data)
             self.ffmpeg.stdin.flush()
-            if not self.ffmpeg_ready:
-                yield self.write_back(self.route(src, header), header, data)
         except IOError:
             print "ERROR! FFMPEG is too slow"
 
+        if not self.ffmpeg_ready:
+            yield self.passthru(src, header, data)
+
     def ffmpeg_read_handler(self, fd, events):
         # TODO neaten up this code
-        self.incoming_ffmpeg += self.ffmpeg.stdout.read()
+        t = self.ffmpeg.stdout.read()
+        self.fq.write(t)
+        self.incoming_ffmpeg += t
         self.incoming_ffmpeg = self.incoming_ffmpeg.replace(self.UNIT2, self.UNIT1)
+
         frames = self.incoming_ffmpeg.split(self.UNIT1)
-        assert frames[0] == ''
+        assert frames[0] == '' or frames[0] == '\x00'
         self.incoming_ffmpeg = self.UNIT2 + frames[-1]
         for frame in frames[1:-1]:
             if self.prefill_in:
@@ -112,13 +156,12 @@ class FfmpegLayer(NetLayer):
         """Start/stop recording to use for looping."""
         if self.record:
             self.record = False
-            return "ffmpeg recorded {} frames ({} kB) of video ({} skipped).".format(len(self.recorded_buffer), sum(map(len, self.recorded_buffer)) / 1024, self.frames_skipped)
+            return "ffmpeg recorded {} frames ({} kB) of video.".format(len(self.recorded_buffer), sum(map(len, self.recorded_buffer)) / 1024)
         elif self.loop:
             return "ffmpeg cannot record while looping."
         else:
             self.record = True
             self.recorded_buffer = []
-            self.frames_skipped = 0
             return "ffmpeg is recording video..."
 
     def do_loop(self, *args):
@@ -126,19 +169,24 @@ class FfmpegLayer(NetLayer):
         if self.loop:
             self.loop = False
             return "ffmpeg is returning to normal video."
-        elif self.record:
-            return "ffmpeg cannot loop while recording."
-        elif len(self.recorded_buffer) < 32:
-            return "ffmpeg cannot loop less than 32 frames of video."
-        else:
-            self.loop = True
-            return "ffmpeg is looping recorded video."
+        if len(self.recorded_buffer) < 32:
+            return "ffmpeg cannot loop less than 32 frames of video (only {}).".format(self.rencoded_buffer)
+
+        self.record = False
+        self.loop = True
+        return "ffmpeg is looping recorded video."
+
+    def do_status(self):
+        """Print current ffmpeg status"""
+        return "{0.prefill_in} {0.ffmpeg_ready}".format(self)
 
 class H264NalLayer(NetLayer):
     # https://tools.ietf.org/html/rfc3984
     NAME = "h264"
-    UNIT = "\x00\x00\x00\x01"
+    UNIT = "\x00\x00\x01"
     PS = 1396
+    TS_INCR = 3600
+    DATAMOSH_RATE = 0.1
 
     def __init__(self, *args, **kwargs):
         #TODO: This only supports one stream/connection
@@ -148,7 +196,9 @@ class H264NalLayer(NetLayer):
         self.frag_unit_started = False
         self.rencoded_buffer = ''
         self.fragment_buffer = ''
-        self.nal_type = 0
+        self.nal_type_buffer = 0
+        self.nal_timestamp = None
+        self.time_skew = 0
         self.make_toggle("datamosh")
 
     #def match(self, src, header):
@@ -166,6 +216,8 @@ class H264NalLayer(NetLayer):
             # https://tools.ietf.org/html/rfc3984#section-5.1
             flags, payload_type, seq_num, timestamp, ident = struct.unpack("!BBHII", hdr)
             header["nal_timestamp"] = timestamp
+            if self.nal_timestamp is None:
+                self.nal_timestamp = timestamp
 
             # The 8th bit of payload_type is the 'marker bit' flag
             # Move it to the 9th bit of `flags` & remove from `payload_type`
@@ -192,19 +244,24 @@ class H264NalLayer(NetLayer):
                 elif fragment_type == 28:
                     # Start of fragment:
                     if n1 & 0x80:
-                        self.nal_type = n1 & 0x1F
+                        self.nal_type_buffer = n1 & 0x1F
                         self.fragment_buffer = self.UNIT + chr((n0 & 0xE0) | (n1 & 0x1F)) + nal_unit[2:]
 
                     # End of a fragment
                     #header["nal_type"] = self.nal_type
                     elif n1 & 0x40 and self.fragment_buffer is not None:
+                        header["nal_type"] = self.nal_type_buffer
                         self.fragment_buffer += nal_unit[2:] 
                         yield self.bubble(src, header, self.fragment_buffer)
                         self.fragment_buffer = None
+                        self.nal_type_buffer = None
 
                     # Middle of a fragment
                     elif self.fragment_buffer is not None:
                         self.fragment_buffer += nal_unit[2:]
+
+                if 'nal_type' in header:
+                    self.time_skew = timestamp - self.nal_timestamp
 
     @gen.coroutine
     def write(self, dst, header, data):
@@ -213,7 +270,7 @@ class H264NalLayer(NetLayer):
             return
 
         # TODO also accept 0x00 0x00 0x01 as UNIT
-        usplit = self.rencoded_buffer.split(self.UNIT)
+        usplit = map(lambda x: x[1:] if x and x[0] == '\x00' else x, self.rencoded_buffer.split(self.UNIT))
         self.rencoded_buffer = self.UNIT + usplit[-1]
 
         # Assert that there wasn't data before the first H.624 frame
@@ -227,9 +284,12 @@ class H264NalLayer(NetLayer):
 
             # I-frame
             if h0 & 0x1F == 5:
-                # Implement datamoshing by skipping I-frames
-                if self.datamosh: 
+                # Implement datamoshing by skipping IDR's
+                if self.datamosh and random.random() > self.DATAMOSH_RATE: 
                     continue
+
+            if h0 & 0x1F in {5, 1}: # IDR's & Coded slices increment timestamp
+                self.nal_timestamp += self.TS_INCR
 
             # TODO:  Re-generate timestamps
 
@@ -258,10 +318,16 @@ class H264NalLayer(NetLayer):
     def write_nal_fragment(self, dst, header, data, end=True):
         payload_type = 96 # H.264
         mark = 0x80 if end else 0 
-        timestamp = header.get("nal_timestamp", 0) & 0xFFFFFFFF # 4 bytes
+        #timestamp = header.get("nal_timestamp", 0) & 0xFFFFFFFF # 4 bytes
+        timestamp = self.nal_timestamp & 0xFFFFFFFF
         head = struct.pack("!BBHII", 0x80, payload_type | mark, self.seq_num, timestamp, 0)
-        self.seq_num = (self.seq_num + 1) & 0xFFFFFFFF # 4 bytes
+        self.seq_num = (self.seq_num + 1) & 0xFFFF # 2 bytes
 
         yield self.write_back(dst, header, head + data)
+
+    def do_skew(self):
+        """Print the current time skew from the source video (dropped frames)."""
+        return "Skew: {} frames".format(self.time_skew / 3600)
+
 
 

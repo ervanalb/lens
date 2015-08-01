@@ -21,8 +21,8 @@ if __name__ == "__main__":
 
     tap = driver.FakeTap()
 
-    #loop, link_layer = ethernet.build_ethernet_loop()
-    loop, link_layer = ethernet.build_dummy_loop()
+    loop, link_layer = ethernet.build_ethernet_loop()
+    #loop, link_layer = ethernet.build_dummy_loop()
     tap.mitm()
 
     sh = shell.CommandShell()
@@ -99,7 +99,7 @@ if __name__ == "__main__":
     sh.register_layer_instance(video_layer)
     video_filter_layer.register_child(video_layer)
 
-    ffmpeg_layer = video.FfmpegLayer()
+    ffmpeg_layer = video.FfmpegLayer(cmd="hack")
     sh.register_layer_instance(ffmpeg_layer)
     video_layer.register_child(ffmpeg_layer)
 
