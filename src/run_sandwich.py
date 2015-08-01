@@ -13,6 +13,7 @@ import http
 import video
 
 import tornado.gen as gen
+from tornado.ioloop import IOLoop
 
 if __name__ == "__main__":
     #addr = ["192.168.1.10"]
@@ -21,13 +22,15 @@ if __name__ == "__main__":
 
     tap = driver.FakeTap()
 
-    loop, link_layer = ethernet.build_ethernet_loop()
+    #loop, link_layer = ethernet.build_ethernet_loop()
     #loop, link_layer = ethernet.build_dummy_loop()
+    link_layer = ethernet.LinkLayer()
+
     tap.mitm()
 
     sh = shell.CommandShell()
     sh.available_layers = base.LayerMeta.layers.values()
-    sh.ioloop_attach(loop)
+    sh.ioloop_attach()
 
     eth_layer = ethernet.EthernetLayer()
     sh.register_layer_instance(eth_layer)
@@ -98,7 +101,7 @@ if __name__ == "__main__":
     recorder_layer.register_child(ffmpeg_layer)
 
     try:
-        loop.start()
+        IOLoop.instance().start()
     except:
         tap.passthru()
-
+        raise

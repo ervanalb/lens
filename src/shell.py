@@ -1,5 +1,6 @@
 import fcntl
 import os
+from tornado.ioloop import IOLoop
 
 class ShellQuit(Exception):
     pass
@@ -86,9 +87,12 @@ class CommandShell(object):
             self.output_file.write(str(result) + "\n")
         self.write_prompt()
 
-    def ioloop_attach(self, ioloop):
-        self.ioloop = ioloop
-        ioloop.add_handler(0, self.handle_input, ioloop.READ)
+    def ioloop_attach(self, ioloop = None):
+        if ioloop is None:
+            self.ioloop = IOLoop.instance()
+        else:
+            self.ioloop = ioloop
+        self.ioloop.add_handler(0, self.handle_input, IOLoop.READ)
         self.write_prompt()
 
     def register_layer_instance(self, layer, basename = None):

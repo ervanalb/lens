@@ -15,49 +15,55 @@ import tornado.ioloop
 import tornado.iostream
 import tornado.gen as gen
 
-try:
-    import queue
-except:
-    import Queue as queue
-
 from base import NetLayer
 
-class LinkLayer(object):
-    # Not actually a subclass of NetLayer, but exposes a similar interface for consistency
+class LinkLayer(NetLayer):
     SNAPLEN=1550
 
-    def __init__(self, streams):
-        self.streams = streams
-        self.child = None
+    ALICE = 0
+    BOB = 1
 
-    def register_child(self, child):
-        self.child = child
-        child.parent = self
+    def __init__(self, alice_nic = "tapa", bob_nic = "tapb", *args, **kwargs):
+        super(LinkLayer, self).__init__(*args, **kwargs)
+        alice_sock = self.attach(alice_nic)
+        bob_sock = self.attach(bob_nic)
 
-    @gen.coroutine
-    def on_read(self, src):
-        while True:
-            try:
-                #FIXME
-                data = self.streams[src].socket.recv(self.SNAPLEN)
-            except socket.error as e:
-                if e.args[0] not in (errno.EWOULDBLOCK, errno.EAGAIN):
-                    raise
-                return
-            if self.child is not None:
-                yield self.child.on_read(src, {}, data[:-2])
-            else:
-                dst = 1 - src # XXX
-                yield self.write(dst, {}, data[:-2])
+        io_loop = tornado.ioloop.IOLoop.instance()
 
-    @gen.coroutine
+        self.alice_stream = tornado.iostream.IOStream(alice_sock)
+        self.bob_stream = tornado.iostream.IOStream(bob_sock)
+
+        io_loop.add_handler(alice_sock.fileno(), self.alice_read, io_loop.READ)
+        io_loop.add_handler(bob_sock.fileno(), self.bob_read, io_loop.READ)
+
+    @staticmethod
+    def attach(nic):
+        result = subprocess.call(["ip","link","set","up","promisc","on","dev",nic])
+        if result:
+            raise Exception("ip link dev {0} returned exit code {1}".format(nic,result))
+        sock = socket.socket(socket.AF_PACKET,socket.SOCK_RAW,socket.htons(ETH_P_ALL))
+        sock.bind((nic,0))
+        sock.setblocking(0)
+        return sock
+
+    # coroutine
+    def alice_read(self, fd, event):
+        data = self.alice_stream.socket.recv(self.SNAPLEN)
+        return self.on_read(self.ALICE, {}, data[:-2])
+
+    # coroutine
+    def bob_read(self, fd, event):
+        data = self.bob_stream.socket.recv(self.SNAPLEN)
+        return self.on_read(self.BOB, {}, data[:-2])
+
+    # coroutine
     def write(self, dst, header, data):
-        try:
-            yield self.streams[dst].write(data)
-        except tornado.iostream.StreamClosedError:
-            print "Link Layer stream closed; exiting..."
-            sys.exit(-1)
-
+        if dst == self.ALICE:
+            return self.alice_stream.write(data)
+        elif dst == self.BOB:
+            return self.bob_stream.write(data)
+        else:
+            raise Exception("Bad destination")
 
 class EthernetLayer(NetLayer):
     NAME = "eth"
@@ -106,52 +112,43 @@ class EthernetLayer(NetLayer):
                 output += " - %s\n" % mac
         return output
 
-def attach(nic):
-    result = subprocess.call(["ip","link","set","up","promisc","on","dev",nic])
-    if result:
-        raise Exception("ip link dev {0} returned exit code {1}".format(nic,result))
-    sock = socket.socket(socket.AF_PACKET,socket.SOCK_RAW,socket.htons(ETH_P_ALL))
-    sock.bind((nic,0))
-    sock.setblocking(0)
-    return sock
 
-
-def eth_callback(layer, src, fd, events):
-    #while True:
-    for i in range(events):
-        try:
-            layer.on_read(src)
-        except socket.error as e:
-            if e.args[0] not in (errno.EWOULDBLOCK, errno.EAGAIN):
-                raise
-            return
-
-def build_dummy_loop(*args, **kwargs):
-    io_loop = tornado.ioloop.IOLoop.instance()
-    link_layer = LinkLayer([])
-    return io_loop, link_layer
-
-def build_ethernet_loop(alice_nic="tapa", bob_nic="tapb"):
-    alice_sock = attach(alice_nic)
-    bob_sock = attach(bob_nic)
-
-    def write_fn(sock):
-        def _fn(data):
-            return sock.send(data)
-        return _fn
-
-    io_loop = tornado.ioloop.IOLoop.instance()
-
-    alice_stream = tornado.iostream.IOStream(alice_sock)
-    bob_stream = tornado.iostream.IOStream(bob_sock)
-
-    link_layer = LinkLayer([alice_stream, bob_stream])
-
-    alice_cb = functools.partial(eth_callback, link_layer, 0)
-    bob_cb = functools.partial(eth_callback, link_layer, 1)
-
-    io_loop.add_handler(alice_sock.fileno(), alice_cb, io_loop.READ)
-    io_loop.add_handler(bob_sock.fileno(), bob_cb, io_loop.READ)
-
-    return io_loop, link_layer
-
+#def eth_callback(layer, src, fd, events):
+#    #while True:
+#    for i in range(events):
+#        try:
+#            layer.on_read(src)
+#        except socket.error as e:
+#            if e.args[0] not in (errno.EWOULDBLOCK, errno.EAGAIN):
+#                raise
+#            return
+#
+#def build_dummy_loop(*args, **kwargs):
+#    io_loop = tornado.ioloop.IOLoop.instance()
+#    link_layer = LinkLayer([])
+#    return io_loop, link_layer
+#
+#def build_ethernet_loop(alice_nic="tapa", bob_nic="tapb"):
+#    alice_sock = attach(alice_nic)
+#    bob_sock = attach(bob_nic)
+#
+#    def write_fn(sock):
+#        def _fn(data):
+#            return sock.send(data)
+#        return _fn
+#
+#    io_loop = tornado.ioloop.IOLoop.instance()
+#
+#    alice_stream = tornado.iostream.IOStream(alice_sock)
+#    bob_stream = tornado.iostream.IOStream(bob_sock)
+#
+#    link_layer = LinkLayer([alice_stream, bob_stream])
+#
+#    alice_cb = functools.partial(eth_callback, link_layer, 0)
+#    bob_cb = functools.partial(eth_callback, link_layer, 1)
+#
+#    io_loop.add_handler(alice_sock.fileno(), alice_cb, io_loop.READ)
+#    io_loop.add_handler(bob_sock.fileno(), bob_cb, io_loop.READ)
+#
+#    return io_loop, link_layer
+#
