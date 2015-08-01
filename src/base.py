@@ -6,11 +6,6 @@ class NetLayer(object):
         1: 0,
         0: 1
     }
-    # IN_TYPES & OUT_TYPES are used for static type checking so that
-    # warnings can be raised when mismatched layers are connected.
-    #TODO - Static type checking? Standard type names?
-    IN_TYPES = set()
-    OUT_TYPE = None
 
     def __init__(self, debug=False):
         self.children = []
@@ -88,10 +83,6 @@ class NetLayer(object):
         # Given a message to port `dst`, determine which port it should have come from
         return self.routing[dst]
 
-    def do_help(self, shell, *args):
-        # Shell command handler for 'help'
-        return "This command is undocumented."
-
     def make_toggle(self, name, default=False):
         # Generates property & shell command to toggle the property
         # Usage: (in __init__)
@@ -106,6 +97,7 @@ class NetLayer(object):
         return default
 
     def do_debug(self, *args):
+        """Toggle debugging on this layer."""
         # Shell command handler for 'debug' to toggle self.debug
         self.debug = not self.debug
         return "Debug: {}".format("on" if self.debug else "off")
@@ -169,23 +161,6 @@ class LineBufferLayer(NetLayer):
                 del self.enabled[conn_id]
                 del self.buffers[conn_id]
         yield self.close_bubble(src, header)
-
-#TODO
-def connect(prev, layer_list, check_types=False, **global_kwargs):
-    layers = []
-    for (const, args, kwargs) in layer_list:
-        kwargs.update(global_kwargs)
-        new = const(*args, parent=prev, **kwargs)
-        layers.append(new)
-        if prev.OUT_TYPE not in new.IN_TYPES and check_types:
-            print "Warning: connecting incompatible {} -> {}".format(repr(prev), repr(new))
-        prev.next_layer = new
-        prev = new
-    return layers
-
-# Simple syntatic sugar
-def l(constructor, *args, **kwargs):
-    return (constructor, args, kwargs)
 
 class MultiOrderedDict(list):
     def __init__(self, from_list=None):

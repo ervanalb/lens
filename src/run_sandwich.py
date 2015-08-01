@@ -14,8 +14,6 @@ import video
 
 import tornado.gen as gen
 
-from base import l, connect, NetLayer
-
 if __name__ == "__main__":
     #addr = ["192.168.1.10"]
     addr = []
@@ -23,7 +21,8 @@ if __name__ == "__main__":
 
     tap = driver.FakeTap()
 
-    loop, link_layer = ethernet.build_ethernet_loop()
+    #loop, link_layer = ethernet.build_ethernet_loop()
+    loop, link_layer = ethernet.build_dummy_loop()
     tap.mitm()
 
     sh = shell.CommandShell()
@@ -36,6 +35,7 @@ if __name__ == "__main__":
         udp.UDPFilterLayer,
         tcp.TCPLayer,
         tcp.TCPFilterLayer,
+        video.FfmpegLayer,
     ]
     sh.ioloop_attach(loop)
 

@@ -3,12 +3,8 @@ import zlib
 from base import NetLayer, MultiOrderedDict, PipeLayer
 from tornado import gen, httputil
 
-
-#class HTTPLayer(TCPApplicationLayer):
 class HTTPLayer(NetLayer):
     NAME = "http"
-    IN_TYPES = {"TCP App"}
-    OUT_TYPE = "HTTP"
 
     ENCODERS = {
         "gzip": zlib.compress,

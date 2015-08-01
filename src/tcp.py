@@ -114,11 +114,11 @@ class TimestampEstimator(object):
 class TCPFilterLayer(NetLayer):
     """ Simple TCP layer which will pass packets on certain TCP ports through """
     NAME = "tcp_filter"
-    IN_TYPES = {"TCP"}
-    OUT_TYPE = "TCP"
 
-    def __init__(self, ports = []):
+    def __init__(self, ports=None):
         super(TCPFilterLayer, self).__init__()
+        if ports is None:
+            ports = []
         self.ports = ports
 
     def match(self, src, header):
@@ -139,8 +139,6 @@ class TCPFilterLayer(NetLayer):
 
 class TCPLayer(NetLayer):
     NAME = "tcp"
-    IN_TYPES = {"IP"}
-    OUT_TYPE = "TCP"
     DEFAULT_MSS = 536
     MAX_MSS = 1400
 
@@ -153,6 +151,7 @@ class TCPLayer(NetLayer):
         return header["ip_p"] == dpkt.ip.IP_PROTO_TCP
 
     def do_list(self):
+        """List open TCP connections."""
         print "Open TCP Connections ({}):".format(len(self.connections))
         for conn_id, conn in sorted(self.connections.items(), key=lambda x: x[1]["count"]):
             fdict = {}

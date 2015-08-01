@@ -6,8 +6,6 @@ from tornado import gen
 
 class UDPLayer(NetLayer):
     NAME = "udp"
-    IN_TYPES = {"IP"}
-    OUT_TYPE = "IP"
     seen_ports = set()
 
     def match(self, src, header):
@@ -35,8 +33,6 @@ class UDPLayer(NetLayer):
 class UDPFilterLayer(NetLayer):
     NAME = "udp_filter"
     """ Pass all UDP packets with a given port through """
-    IN_TYPES = {"UDP"}
-    OUT_TYPE = "UDP"
 
     def __init__(self, ports = []):
         super(UDPFilterLayer, self).__init__()

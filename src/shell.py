@@ -6,8 +6,9 @@ class CommandShell(object):
     prompt = "> "
 
     def __init__(self):
-        self.input_file = open("/dev/stdin")
+        self.input_file = open("/dev/stdin", "r")
         self.output_file = open("/dev/stdout", "w")
+
         self.layers = {}
         self.available_layers = []
         self.ioloop = None
@@ -20,28 +21,36 @@ class CommandShell(object):
         input_line = self.input_file.readline()
         arguments = input_line.split()
         layer, command = None, None
-        if len(arguments) > 0:
-            layer = arguments.pop(0).lower()
-        if len(arguments) > 0:
-            command = arguments.pop(0).lower()
 
-        if layer == "help" or layer is None:
-            result = "Registered layers: {}".format(", ".join(self.layers.keys()))
-        elif layer == "quit":
-            raise ShellQuit
-        elif layer in self.layers:
-            layer_obj = self.layers[layer]
-            if command is None:
-                cmds = [x[3:] for x in dir(layer_obj) if x.startswith(self.CMD_PREFIX)] + self.global_layer_cmds.keys()
-                result = "Layer '{}' commands: {}".format(layer, ", ".join(cmds))
-            else:
-                if command in self.global_layer_cmds:
-                    try:
-                        result = self.global_layer_cmds[command](self, layer_obj, *arguments)
-                    except Exception as e:
-                        result = "Error: {}".format(e)
+        if len(arguments) == 0:
+            self.write_prompt()
+            return
+
+        command = arguments.pop(0).lower()
+
+        get_cmd_fn = lambda obj, name: getattr(obj, self.CMD_PREFIX + name, None)
+
+        shell_fn = get_cmd_fn(self, command)
+        if shell_fn is not None:
+            # Then this is actually a shell command
+            try:
+                result = shell_fn(*arguments)
+            except ShellQuit:
+                raise
+            except Exception as e:
+                result = "Shell Error: {}".format(e)
+        else:
+            layer, command = command, None
+            if len(arguments) > 0:
+                command = arguments.pop(0).lower()
+
+            if layer in self.layers:
+                if command is None:
+                    # Get help for `layer` if no command was specified
+                    result = self.do_help(layer)
                 else:
-                    fn = getattr(layer_obj, self.CMD_PREFIX + command, None)
+                    layer_obj = self.layers[layer]
+                    fn = get_cmd_fn(layer_obj, command)
                     if fn is not None:
                         try:
                             result = fn(*arguments)
@@ -49,8 +58,8 @@ class CommandShell(object):
                             result = "Layer Error: {}".format(e)
                     else:
                         result = "Invalid layer command '{} {}'".format(layer, command)
-        else:
-            result = "Invalid layer '{}'".format(layer)
+            else:
+                result = "Invalid layer '{}'".format(layer)
 
         if result is not None:
             self.output_file.write(str(result) + "\n")
@@ -58,7 +67,7 @@ class CommandShell(object):
 
     def ioloop_attach(self, ioloop):
         self.ioloop = ioloop
-        ioloop.add_handler(self.input_file.fileno(), self.handle_input, ioloop.READ)
+        ioloop.add_handler(0, self.handle_input, ioloop.READ)
         self.write_prompt()
 
     def register_layer_instance(self, layer, basename = None):
@@ -85,19 +94,50 @@ class CommandShell(object):
     def layer_name(self, layer):
         return {v: k for k, v in self.layers.items()}[layer]
 
-    def add_layer(self, parent, layername, *args):
+    def do_help(self, layer=None):
+        """help (<layer>) - Display help."""
+        def print_help(obj):
+            for key in sorted(dir(obj)):
+                if key.startswith(self.CMD_PREFIX):
+                    cmd_name = key[len(self.CMD_PREFIX):]
+                    help_text = getattr(obj, key).__doc__ or "(undocumented)"
+                    print "    {:8s} {}".format(cmd_name, help_text)
+
+        if layer is None:
+            print "Registered layers:"
+            print "    {}".format(" ".join(self.layers.keys()))
+            print ""
+            print "Shell Commands:"
+            print_help(self)
+
+        elif layer in self.layers:
+            layer_obj = self.layers[layer]
+            print "{} ({}) Commands:".format(layer, layer_obj.__class__.__name__)
+            print_help(layer_obj)
+
+        else:
+            print "Unknown layer: '{}'".format(layer)
+
+    def do_quit(self, *args):
+        """quit - Close lens, switching tap to passthru."""
+        raise ShellQuit
+
+    def do_add(self, parent, layername, *args):
+        """del <parent> <layername> (<args>...)- Create a layer."""
         ls = {l.NAME: l for l in self.available_layers}
         l = ls[layername](*args)
         parent.register_child(l)
         n = self.register_layer_instance(l)
         print "Registered '{}'".format(n)
 
-    def del_layer(self, parent, layername):
+    def do_del(self, parent, layername):
+        """del <parent> <layername> - Delete a layer."""
         l = self.layers[layername]
         self.unregister_layer_instance(l)
         parent.unregister_child(l)
 
-    def show_layer(self, layername):
+    def do_show(self, layername):
+        """show <layername> - Show tree of connected layers."""
         def printer(l, level = 0):
             l_n = self.layer_name(l)
             print "|  " * level + "|- " + l_n
@@ -105,6 +145,4 @@ class CommandShell(object):
                 printer(child, level + 1)
 
         printer(layername)
-
-    global_layer_cmds = {"add": add_layer, "del": del_layer, "show": show_layer}
 

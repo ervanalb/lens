@@ -26,9 +26,6 @@ class LinkLayer(object):
     # Not actually a subclass of NetLayer, but exposes a similar interface for consistency
     SNAPLEN=1550
 
-    IN_TYPES = set()
-    OUT_TYPE = "Raw"
-
     def __init__(self, streams):
         self.streams = streams
         self.child = None
@@ -63,9 +60,11 @@ class LinkLayer(object):
 
 
 class EthernetLayer(NetLayer):
-    IN_TYPES = {"Raw"}
-    OUT_TYPE = "Ethernet"
     NAME = "eth"
+
+    def __init__(self, *args, **kwargs):
+        super(EthernetLayer, self).__init__(*args, **kwargs)
+        self.seen_macs = {k: set() for k in self.routing.keys()}
 
     @staticmethod
     def pretty_mac(mac):
@@ -86,6 +85,7 @@ class EthernetLayer(NetLayer):
             "eth_src": self.pretty_mac(pkt.src),
             "eth_type": pkt.type,
         }
+        self.seen_macs[src].add(header["eth_src"])
         yield self.bubble(src, header, pkt.data)
 
     @gen.coroutine
@@ -96,6 +96,15 @@ class EthernetLayer(NetLayer):
                 type=header["eth_type"],
                 data=payload)
         yield self.write_back(dst, header, str(pkt))
+
+    def do_list(self):
+        """List MAC addresses that have sent data to attached NICs."""
+        output = ""
+        for src, macs in self.seen_macs.items():
+            output += "Source %d:\n" % src
+            for mac in macs:
+                output += " - %s\n" % mac
+        return output
 
 def attach(nic):
     result = subprocess.call(["ip","link","set","up","promisc","on","dev",nic])
@@ -116,6 +125,11 @@ def eth_callback(layer, src, fd, events):
             if e.args[0] not in (errno.EWOULDBLOCK, errno.EAGAIN):
                 raise
             return
+
+def build_dummy_loop(*args, **kwargs):
+    io_loop = tornado.ioloop.IOLoop.instance()
+    link_layer = LinkLayer([])
+    return io_loop, link_layer
 
 def build_ethernet_loop(alice_nic="tapa", bob_nic="tapb"):
     alice_sock = attach(alice_nic)
