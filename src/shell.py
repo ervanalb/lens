@@ -92,7 +92,7 @@ class CommandShell(object):
         print "Deleted '{}'".format(l_n)
 
     def layer_name(self, layer):
-        return {v: k for k, v in self.layers.items()}[layer]
+        return {v: k for k, v in self.layers.items()}.get(layer, None)
 
     def do_help(self, layer=None):
         """help (<layer>) - Display help."""
@@ -122,10 +122,11 @@ class CommandShell(object):
         """quit - Close lens, switching tap to passthru."""
         raise ShellQuit
 
-    def do_add(self, parent, layername, *args):
-        """del <parent> <layername> (<args>...)- Create a layer."""
+    def do_add(self, parentname, layername, *args):
+        """add <parent> <layername> (<args>...)- Create a layer."""
         ls = {l.NAME: l for l in self.available_layers}
         l = ls[layername](*args)
+        parent = self.layers[parentname]
         parent.register_child(l)
         n = self.register_layer_instance(l)
         print "Registered '{}'".format(n)
@@ -140,9 +141,16 @@ class CommandShell(object):
         """show <layername> - Show tree of connected layers."""
         def printer(l, level = 0):
             l_n = self.layer_name(l)
-            print "|  " * level + "|- " + l_n
-            for child in l.children:
-                printer(child, level + 1)
+            if l_n is not None:
+                print "|  " * level + "|- " + l_n
+                for child in l.children:
+                    printer(child, level + 1)
+            else:
+                print "|  " * level + "|- ({})".format(l.NAME)
 
-        printer(layername)
+        try:
+            l = self.layers[layername]
+        except KeyError:
+            return "No such layer '{}'".format(layername)
 
+        printer(l)
