@@ -139,14 +139,14 @@ class CommandShell(object):
 
     def do_show(self, layername):
         """show <layername> - Show tree of connected layers."""
-        def printer(l, level = 0):
+        def printer(l, last = [True]):
             l_n = self.layer_name(l)
-            if l_n is not None:
-                print "|  " * level + "|- " + l_n
-                for child in l.children:
-                    printer(child, level + 1)
-            else:
-                print "|  " * level + "|- ({})".format(l.NAME)
+            prefix = "".join(["   " if last_layer else "|  " for last_layer in last[:-1]])
+            print prefix + "|- " + l_n
+            if len(l.children):
+                for child in l.children[:-1]:
+                    printer(child, last + [False])
+                printer(l.children[-1], last + [True])
 
         try:
             l = self.layers[layername]

@@ -105,7 +105,7 @@ if __name__ == "__main__":
 
     ffmpeg_layer = video.FfmpegLayer(cmd="hack")
     sh.register_layer_instance(ffmpeg_layer)
-    video_layer.register_child(ffmpeg_layer)
+    recorder_layer.register_child(ffmpeg_layer)
 
     try:
         loop.start()
