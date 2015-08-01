@@ -36,7 +36,7 @@ class HTTPLayer(NetLayer):
         if src in {0, 1}:
             self.connections[conn_id][src].send(data)
         else:
-            print "Unknown src: {}"
+            self.log("Unknown src: {}", src)
             yield self.passthru(src, conn, data)
         #yield self.bubble(src, data, conn)
 
@@ -62,10 +62,10 @@ class HTTPLayer(NetLayer):
             try:
                 req = httputil.parse_request_start_line(req_line.strip())
                 if self.debug and False: 
-                    print "HTTP Info: parsed request start line"
+                    self.log("HTTP Info: parsed request start line")
             except httputil.HTTPInputError:
                 if req_line != "":
-                    print "HTTP Error: Malformed request start line: '%s'" % req_line
+                    self.log("HTTP Error: Malformed request start line: '{}'", req_line)
                 req_line = yield
                 continue
             while True:
@@ -125,16 +125,16 @@ class HTTPLayer(NetLayer):
             try:
                 resp = httputil.parse_response_start_line(start_line.strip())
                 if self.debug and False: 
-                    print "HTTP Info: parsed response start line"
+                    self.log("HTTP Info: parsed response start line")
             except httputil.HTTPInputError:
                 if start_line != "":
-                    print "HTTP Error: Malformed response start line: '%s'" % start_line
+                    self.log("HTTP Error: Malformed response start line: '{}'", start_line)
                 start_line = yield
                 continue
             while True:
                 header_line = yield
                 if header_line is None:
-                    print "HTTP Warning: Terminated early?"
+                    self.log("HTTP Warning: Terminated early?")
                     return
                 if not header_line.strip():
                     break
@@ -212,7 +212,7 @@ class HTTPLayer(NetLayer):
             #yield self.write_back(dst, conn, line)
 
         if self.debug:
-            print "HTTP write >> ", output
+            self.log(">> {}", output)
 
         #yield self.write_back(dst, conn, "\r\n")
         #yield self.write_back(dst, conn, data)

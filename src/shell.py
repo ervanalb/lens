@@ -24,7 +24,7 @@ class CommandShell(object):
         ioloop = tornado.ioloop.IOLoop.current()
         ioloop.add_handler(0, self.handle_input, ioloop.READ)
 
-        #fcntl.fcntl(self.input_file.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
+        fcntl.fcntl(self.input_file.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
         self.write_prompt()
         base.LayerMeta.instance_callback = self.instance_callback
 
@@ -33,7 +33,7 @@ class CommandShell(object):
         #self.register_layer_instance(layer_instance)
 
         def _log_handler(message):
-            self.output_file.write("\r" + message + "\n")
+            self.output_file.write("\r[{0:s}] {1}\n".format(layer_instance.NAME, message))
             self.write_prompt()
 
         layer_instance.add_logger(_log_handler)
@@ -44,7 +44,6 @@ class CommandShell(object):
         self.output_file.flush()
 
     def handle_input(self, fd, events):
-        print 'input'
         new_data = self.input_file.read()
         self.input_buffer += new_data
 

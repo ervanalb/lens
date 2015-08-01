@@ -80,6 +80,7 @@ class FfmpegLayer(NetLayer):
 
         pos = [0]
         def on_writable(fd, event):
+            print "write"
             if event & IOLoop.WRITE:
                 n = 0
                 n = os.write(fd, loop[pos[0]:]) + pos[0]

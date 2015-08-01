@@ -108,7 +108,7 @@ class NetLayer(object):
         log_message = msg.format(*args, **kwargs)
 
         for debug_only, log_handler in self.loggers:
-            if debug or not debug_only:
+            if self.debug or not debug_only:
                 log_handler(log_message)
 
     def add_logger(self, handler, debug_only=False):

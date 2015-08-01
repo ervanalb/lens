@@ -90,8 +90,6 @@ class TimestampEstimator(object):
         if len(self.samples):
             l, s = self.samples[0]
             if s > sample:
-                # Resetting
-                print "timebase: reset"
                 self.samples = []
         self.samples.append((local_time, sample))
         self.recalculate_median()
@@ -142,17 +140,17 @@ class TCPLayer(NetLayer):
     DEFAULT_MSS = 536
     MAX_MSS = 1400
 
-    def __init__(self, debug=False):
+    def __init__(self, *args, **kwargs):
         self.connections = {}
         self.timers = collections.defaultdict(TimestampEstimator)
-        super(TCPLayer, self).__init__()
+        super(TCPLayer, self).__init__(*args, **kwargs)
 
     def match(self, src, header):
         return header["ip_p"] == dpkt.ip.IP_PROTO_TCP
 
     def do_list(self):
         """List open TCP connections."""
-        print "Open TCP Connections ({}):".format(len(self.connections))
+        self.log("Open TCP Connections ({}):", len(self.connections))
         for conn_id, conn in sorted(self.connections.items(), key=lambda x: x[1]["count"]):
             fdict = {}
             sender = conn[conn["sender"]]
@@ -161,7 +159,7 @@ class TCPLayer(NetLayer):
             fdict['sack'] = sender['ack'] - sender['ack_start']
             fdict['rseq'] = receiver['seq'] - receiver['seq_start']
             fdict['rack'] = receiver['ack'] - receiver['ack_start']
-            print " - {sender[ip_src]}:{sender[sport]} [{sender[state]} S={sseq} A={sack}] --> {receiver[ip_src]}:{receiver[sport]} [{receiver[state]} S={rseq} A={rack}]".format(sender=sender, receiver=receiver, **fdict)
+            self.log(" - {sender[ip_src]}:{sender[sport]} [{sender[state]} S={sseq} A={sack}] --> {receiver[ip_src]}:{receiver[sport]} [{receiver[state]} S={rseq} A={rack}]", sender=sender, receiver=receiver, **fdict)
 
     @gen.coroutine
     def on_read(self, src, header, payload):
@@ -207,7 +205,7 @@ class TCPLayer(NetLayer):
             ts_val, ts_ecr = None, None
 
         if self.debug:
-            print "TCP {}{} {} {:.3f} {}:{:<5}->{}:{:<5} {:<4} seq={:<3} ({:<10}) ack={:<3} ({:<10}) data=[{:<4}]{:8} tsval={} tsecr={}".format(
+            self.log("TCP {}{} {} {:.3f} {}:{:<5}->{}:{:<5} {:<4} seq={:<3} ({:<10}) ack={:<3} ({:<10}) data=[{:<4}]{:8} tsval={} tsecr={}",
                     "AB"[src], "->",
                     conn["count"],
                     time.clock(), 
@@ -305,7 +303,7 @@ class TCPLayer(NetLayer):
             if src_conn.get("state") == "SYN-SENT":
                 src_conn["state"] = "ESTABLISHED"
                 if self.debug:
-                    print "TCP established", src
+                    self.log("established @ {}", src)
                 # The ACK reply gets handled later on
                 
                 # Forward SYNACK
@@ -346,7 +344,7 @@ class TCPLayer(NetLayer):
             if src_conn.get("state") == "SYN-RECIEVED":
                 src_conn["state"] = "ESTABLISHED"
                 if self.debug:
-                    print "TCP established complete", src
+                    self.log("TCP established complete @{}", src)
 
             if src_conn.get("state") == "ESTABLISHED":
                 src_conn["seq"] = max(src_conn.get('seq'), pkt.ack)
@@ -366,11 +364,11 @@ class TCPLayer(NetLayer):
             if "state" in src_conn and dst_conn.get("state"): # If it's already been reset, just passthru
                 # This is a connection we're modifying
                 if self.debug:
-                    print "RST on MiTM connection", src_conn["state"], dst_conn.get("state")
+                    self.log("RST on MiTM connection {} {}", src_conn["state"], dst_conn.get("state"))
                 dst_conn["state"] = "RESET"
                 src_conn["state"] = "CLOSED"
                 if "seq" not in dst_conn:
-                    print 'invalid RST', dst_conn
+                    self.log('invalid RST {}', dst_conn)
                 if 'seq' in dst_conn:
                     # Forward RST
                     yield self.write_packet(dst, conn_id, flags="R")
@@ -383,7 +381,7 @@ class TCPLayer(NetLayer):
             else:
                 # This isn't on a actively modified connection, passthru
                 if self.debug:
-                    print "RST passthru"
+                    self.log("RST passthru")
                 yield self.passthru(src, header, payload)
 
         if "state" not in dst_conn: # Not handled
@@ -432,12 +430,12 @@ class TCPLayer(NetLayer):
             pkt.data = payload
 
         if self.debug:
-            print "TCP {}{}   {:.3f} {}:{:<5}->{}:{:<5} {:<4} seq={:<3} ({:<10}) ack={:<3} ({:<10}) data=[{:<4}]{:8} tsval={} tsecr={}".format(
+            self.log("TCP {}{}   {:.3f} {}:{:<5}->{}:{:<5} {:<4} seq={:<3} ({:<10}) ack={:<3} ({:<10}) data=[{:<4}]{:8} tsval={} tsecr={}",
                     "->", "AB"[dst],
                     time.clock(), 
-                    hosts.get(header["ip_src"], "?"),
+                    "-", #hosts.get(header["ip_src"], "?"),
                     pkt.sport,
-                    hosts.get(header["ip_dst"], "?"),
+                    "-", #hosts.get(header["ip_dst"], "?"),
                     pkt.dport,
                     tcp_read_flags(pkt.flags),
                     pkt.seq - conn['seq_start'] if 'seq_start' in conn else '-',

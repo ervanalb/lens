@@ -90,12 +90,13 @@ if __name__ == "__main__":
     sh.register_layer_instance(recorder_layer)
     video_layer.register_child(recorder_layer)
 
-    ffmpeg_layer = video.FfmpegLayer(cmd="hack", debug=True)
-    sh.register_layer_instance(ffmpeg_layer)
-    recorder_layer.register_child(ffmpeg_layer)
+    #ffmpeg_layer = video.FfmpegLayer(cmd="hack", debug=True)
+    #sh.register_layer_instance(ffmpeg_layer)
+    #recorder_layer.register_child(ffmpeg_layer)
 
     try:
         IOLoop.instance().start()
-    except:
+    except KeyboardInterrupt:
+        pass
+    finally:
         tap.passthru()
-        raise
