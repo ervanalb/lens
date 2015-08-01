@@ -23,7 +23,7 @@ class FfmpegLayer(NetLayer):
         #"negflip": ["/usr/bin/ffmpeg", "-y", "-i",  "pipe:0", "-vf", "negate, vflip", "-f", "h264", "pipe:1"],
         "negflip":  ["/usr/bin/ffmpeg", "-y", "-f", "h264", "-i", "-", "-vf", "negate, vflip", "-f", "h264", "-"],
         "hack":     ["sh", get_script("../misc/haxed.sh")],
-        "layer":    ["/usr/bin/ffmpeg", "-y", "-f", "h264", "-i", "/tmp/ffmpeg.h264.fifo", "-i", "-", "-filter_complex", """
+        "layer":    ["/usr/bin/ffmpeg", "-y", "-f", "h264", "-i", "-", "-i", "pipe:???", "-filter_complex", """
             [1:v] crop=1/2*in_w:1/2*in_h:1/2*in_w:0 [loop];
             [0:v] [loop] overlay=1/2*main_w:0 [output]""", "-map", "[output]", "-f", "h264", "-"],
         "tee":      ["tee", "out.h264"],
@@ -47,39 +47,23 @@ class FfmpegLayer(NetLayer):
 
         super(FfmpegLayer, self).__init__(*args, **kwargs)
 
-        fifo_path = "/tmp/ffmpeg.h264.fifo"
-        if os.path.exists(fifo_path):
-            os.unlink(fifo_path)
-        os.mkfifo(fifo_path)
-
         ffmpeg_log = open(ffmpeg_log, "w")
 
-        self.ffmpeg = subprocess.Popen(self.COMMANDS[cmd_name], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=ffmpeg_log)
+        self.ioloop = IOLoop.instance()
+
+        pipe_fd = self.make_loop("loop.h264")
+        cmd = ["/usr/bin/ffmpeg", "-y", "-f", "h264", "-i", "pipe:{0}".format(pipe_fd), "-i", "-", "-filter_complex", """
+            [1:v] crop=1/2*in_w:1/2*in_h:1/2*in_w:0 [loop];
+            [0:v] [loop] overlay=1/2*main_w:0 [output]""", "-map", "[output]", "-f", "h264", "-"]
+        #self.ffmpeg = subprocess.Popen(self.COMMANDS[cmd_name], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=ffmpeg_log)
+        self.ffmpeg = subprocess.Popen(cmd, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=ffmpeg_log)
 
         fcntl.fcntl(self.ffmpeg.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
         fcntl.fcntl(self.ffmpeg.stdin.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
 
-        if cmd_name == "layer":
-            #sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            #sock.connect(fifo_path)
-            #self.unmodified_fifo = os.open(fifo_path, os.O_WRONLY | os.O_NONBLOCK)
-            print "opened fifo"
-            self.unmodified_fifo = open(fifo_path, "w")
-            print "opened fifo"
-            #fcntl.fcntl(self.unmodified_fifo.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
-        else:
-            #self.unmodified_fifo = open("/dev/null", "w")
-            self.unmodified_fifo = None
-
-        self.ioloop = IOLoop.instance()
         self.ioloop.add_handler(self.ffmpeg.stdout.fileno(), self.ffmpeg_read_handler, IOLoop.READ)
 
-        self.loop = False
-        self.record = False
-
         self.frames_skipped = 0
-        self.recorded_buffer = []
-        self.replay_buffer = []
 
         # FIXME: support multiple streams
         self.last_src = None
@@ -88,33 +72,29 @@ class FfmpegLayer(NetLayer):
         self.prefill_in = 110
         self.ffmpeg_ready = False
         self.incoming_ffmpeg = ""
-        self.fq = open('/tmp/t', 'w')
+
+    def make_loop(self, filename):
+        loop = open(filename,"r").read()
+        (fifo_read, fifo_write) = os.pipe()
+        fcntl.fcntl(fifo_write, fcntl.F_SETFL, os.O_NONBLOCK)
+
+        pos = [0]
+        def on_writable(fd, event):
+            if event & IOLoop.WRITE:
+                n = 0
+                n = os.write(fd, loop[pos[0]:]) + pos[0]
+                while n == len(loop):
+                    n = os.write(fd, loop)
+                pos[0] = n
+
+        self.ioloop.add_handler(fifo_write, on_writable, IOLoop.WRITE)
+
+        return fifo_read
 
     @gen.coroutine
     def on_read(self, src, header, data):
         self.last_src = src
         self.last_header = header
-
-        if self.unmodified_fifo is not None:
-            try:
-                self.unmodified_fifo.write(data)
-                self.unmodified_fifo.flush()
-            except IOError:
-                print "error ffmpeg slow to read"
-
-        if self.record:
-            if not self.recorded_buffer:
-                if header.get("nal_type", 0) == 5: # I-frame
-                    self.recorded_buffer.append(data)
-                else:
-                    self.frames_skipped += 1
-            else:
-                self.recorded_buffer.append(data)
-
-        if self.loop:
-            if not self.replay_buffer:
-                self.replay_buffer = self.recorded_buffer[:]
-            data = self.replay_buffer.pop(0)
 
         try:
             self.ffmpeg.stdin.write(data)
@@ -128,7 +108,6 @@ class FfmpegLayer(NetLayer):
     def ffmpeg_read_handler(self, fd, events):
         # TODO neaten up this code
         t = self.ffmpeg.stdout.read()
-        self.fq.write(t)
         self.incoming_ffmpeg += t
         self.incoming_ffmpeg = self.incoming_ffmpeg.replace(self.UNIT2, self.UNIT1)
 
@@ -151,30 +130,6 @@ class FfmpegLayer(NetLayer):
             f = self.write_back(dst, self.last_header, self.UNIT2 + frame)
             if f:
                 self.ioloop.add_future(f, lambda f: None)
-
-    def do_record(self, *args):
-        """Start/stop recording to use for looping."""
-        if self.record:
-            self.record = False
-            return "ffmpeg recorded {} frames ({} kB) of video.".format(len(self.recorded_buffer), sum(map(len, self.recorded_buffer)) / 1024)
-        elif self.loop:
-            return "ffmpeg cannot record while looping."
-        else:
-            self.record = True
-            self.recorded_buffer = []
-            return "ffmpeg is recording video..."
-
-    def do_loop(self, *args):
-        """Start/stop video looping, using recorded buffer."""
-        if self.loop:
-            self.loop = False
-            return "ffmpeg is returning to normal video."
-        if len(self.recorded_buffer) < 32:
-            return "ffmpeg cannot loop less than 32 frames of video (only {}).".format(self.rencoded_buffer)
-
-        self.record = False
-        self.loop = True
-        return "ffmpeg is looping recorded video."
 
     def do_status(self):
         """Print current ffmpeg status"""
