@@ -241,6 +241,33 @@ class PrintLayer(NetLayer):
         print "<", payload
         return self.bubble(src, header, payload)    
 
+class RecorderLayer(NetLayer):
+    NAME = "recorder"
+
+    def __init__(self):
+        super(RecorderLayer, self).__init__()
+        self.f = None
+
+    def do_start(self, filename):
+        self.f = self.open(filename, "w")
+        self.byte_counter = 0
+        self.packet_counter = 0
+
+    def do_stop(self):
+        if not self.f:
+            raise Exception("Not recording!")
+        self.close()
+        self.f = None
+        print "Recorded {0} packets ({1} bytes)".format(self.packet_counter, self.byte_counter)
+
+    # corountine
+    def on_read(self, src, header, payload):
+        if self.f:
+            self.f.write(payload)
+            self.byte_counter += len(payload)
+            self.packet_counter += 1
+        return self.bubble(src, header, payload)
+
 class PipeLayer(NetLayer):
     NAME = "pipe"
     COMMAND = ["cat", "-"]
