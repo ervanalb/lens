@@ -1,7 +1,19 @@
 import tornado.gen as gen
 import subprocess
 
+class LayerMeta(type):
+    layers = {}
+    def __new__(meta, name, bases, dct):
+        klass = super(LayerMeta, meta).__new__(meta, name, bases, dct)
+        if "NAME" in dct:
+            meta.layers[dct["NAME"]] = klass
+        return klass
+
+    def __init__(cls, name, bases, dct):
+        super(LayerMeta, cls).__init__(name, bases, dct)
+
 class NetLayer(object):
+    __metaclass__ = LayerMeta
     routing = {
         1: 0,
         0: 1
@@ -10,6 +22,7 @@ class NetLayer(object):
     def __init__(self, debug=False):
         self.children = []
         self.debug = debug
+        self.loggers = []
 
     def register_child(self, child):
         self.children.append(child)
@@ -82,6 +95,22 @@ class NetLayer(object):
     def unroute(self, dst, header):
         # Given a message to port `dst`, determine which port it should have come from
         return self.routing[dst]
+
+    def log(self, msg, *args, **kwargs):
+        # Log a message to the screen or to a file
+        # Mediated by `self.debug` and the layer's `debug` command
+
+        log_message = msg.format(*args, **kwargs)
+
+        for debug_only, log_handler in self.loggers:
+            if debug or not debug_only:
+                log_handler(log_message)
+
+    def add_logger(self, handler, debug_only=False):
+        # Add a function to be called on `log` events
+        # `debug_only` - if True, then only called when the layer's `debug`
+        # property is set.
+        self.loggers.append((debug_only, handler))
 
     def make_toggle(self, name, default=False):
         # Generates property & shell command to toggle the property
