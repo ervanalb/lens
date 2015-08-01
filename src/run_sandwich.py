@@ -1,10 +1,12 @@
 #!/usr/bin/python2
+
 import dpkt
 import driver
 
 import shell
 
 import base
+import link
 import ethernet 
 import ip
 import tcp
@@ -22,9 +24,7 @@ if __name__ == "__main__":
 
     tap = driver.FakeTap()
 
-    #loop, link_layer = ethernet.build_ethernet_loop()
-    #loop, link_layer = ethernet.build_dummy_loop()
-    link_layer = ethernet.LinkLayer()
+    link_layer = link.LinkLayer()
 
     tap.mitm()
 
