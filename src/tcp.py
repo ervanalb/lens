@@ -115,8 +115,10 @@ class TCPFilterLayer(NetLayer):
     """ Simple TCP layer which will pass packets on certain TCP ports through """
     NAME = "tcp_filter"
 
-    def __init__(self, ports = []):
+    def __init__(self, ports=Name):
         super(TCPFilterLayer, self).__init__()
+        if ports is None:
+            ports = []
         self.ports = ports
 
     def match(self, src, header):

@@ -62,10 +62,12 @@ class IPv4Layer(NetLayer):
 
         self.protocol_stats[pkt.p] += 1
 
+        return self.bubble(src, header, pkt.data)
+
     # coroutine
     def write(self, dst, header, payload):
         src_mac = header["eth_src"]
-        if src_Mac not in self.next_ids:
+        if src_mac not in self.next_ids:
             # Keep track of per-MAC IP packet ID's
             # Generate one randomly if we need to
             self.next_ids[src_mac] = header.get("ip_id", random.randint(0, 0xFFFF))
@@ -103,4 +105,3 @@ class IPv4FilterLayer(NetLayer):
 
     def match(self, src, header):
         return header["ip_src"] in self.ips  or header["ip_dst"] in self.ips
-
