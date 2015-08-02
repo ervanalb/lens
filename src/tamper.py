@@ -1,32 +1,36 @@
 import driver
 import time
 
-class TamperException(Exception): pass
-
 t=driver.Tap()
 
 threshold = 1000
 
 print "Enabling MITM"
 try:
-    t.mitm()
+    #t.mitm()
     t.start_accel()
-    accel_baseline = t.get_accel()
 
     while True:
-        t.heartbeat(150)
+        accel_baseline = t.get_accel()
 
-        accel = t.get_accel()
-        for base, reading in zip(accel_baseline, accel):
-            if abs(base - reading) >= threshold:
-                raise TamperException
+        tamper = False
 
-        time.sleep(0.1)
+        while not tamper:
+            t.heartbeat(150)
 
-except TamperException:
-    print "Tamper!"
-    t.heartbeat()
-    t.passthru()
+            accel = t.get_accel()
+            for base, reading in zip(accel_baseline, accel):
+                if abs(base - reading) >= threshold:
+                    print "Tamper!"
+                    t.heartbeat()
+                    for i in range(5):
+                        time.sleep(0.01)
+                        t.set_led(True)
+                        time.sleep(0.01)
+                        t.set_led(False)
+                    tamper=True
+
+            time.sleep(0.1)
 
 except KeyboardInterrupt:
     print "Got keyboard interrupt, shutting down gracefully..."

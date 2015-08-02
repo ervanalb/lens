@@ -146,18 +146,28 @@ class RecorderLayer(NetLayer):
     def __init__(self):
         super(RecorderLayer, self).__init__()
         self.f = None
+        self.is_waiting = True
 
     # corountine
     def on_read(self, src, header, payload):
         if self.f:
-            self.f.write(payload)
-            self.byte_counter += len(payload)
-            self.packet_counter += 1
+            save = True
+            if self.is_waiting and "nal_type" in header:
+                if header["nal_type"] == 7:
+                    self.is_waiting = False
+                    self.log("Found IDR, starting recording...")
+                else:
+                    save = False
+            if save:
+                self.f.write(payload)
+                self.byte_counter += len(payload)
+                self.packet_counter += 1
         return self.bubble(src, header, payload)
 
     def do_start(self, filename):
         """start <filename> - start recording incoming packets to a file."""
         self.f = open(filename, "w")
+        self.is_waiting = True
         self.byte_counter = 0
         self.packet_counter = 0
         return "Started recording to '{}'".format(filename)
