@@ -8,6 +8,7 @@ import subprocess
 import fcntl
 import os
 import socket
+import random
 
 def get_script(path):
     return os.path.join(
@@ -16,8 +17,8 @@ def get_script(path):
 
 class FfmpegLayer(NetLayer):
     NAME="ffmpeg"
-    UNIT1 = '\x00\x00\x01'
-    UNIT2 = '\x00\x00\x00\x01'
+    UNIT3 = '\x00\x00\x01'
+    UNIT4 = '\x00\x00\x00\x01'
 
     def __init__(self, *args, **kwargs):
         super(FfmpegLayer, self).__init__(**kwargs)
@@ -100,11 +101,11 @@ class FfmpegLayer(NetLayer):
         # TODO neaten up this code
         t = self.ffmpeg.stdout.read()
         self.incoming_ffmpeg += t
-        self.incoming_ffmpeg = self.incoming_ffmpeg.replace(self.UNIT2, self.UNIT1)
+        self.incoming_ffmpeg = self.incoming_ffmpeg.replace(self.UNIT4, self.UNIT3)
 
-        frames = self.incoming_ffmpeg.split(self.UNIT1)
+        frames = self.incoming_ffmpeg.split(self.UNIT3)
         assert frames[0] == '' or frames[0] == '\x00'
-        self.incoming_ffmpeg = self.UNIT2 + frames[-1]
+        self.incoming_ffmpeg = self.UNIT4 + frames[-1]
         for frame in frames[1:-1]:
             if self.prefill_in:
                 self.prefill_in -= 1
@@ -118,7 +119,7 @@ class FfmpegLayer(NetLayer):
                     continue
 
             dst = self.route(self.last_src, self.last_header)
-            self.add_future(self.write_back(dst, self.last_header, self.UNIT2 + frame))
+            self.add_future(self.write_back(dst, self.last_header, self.UNIT4 + frame))
 
     def do_status(self):
         """Print current ffmpeg status"""
@@ -127,10 +128,11 @@ class FfmpegLayer(NetLayer):
 class H264NalLayer(NetLayer):
     # https://tools.ietf.org/html/rfc3984
     NAME = "h264"
-    UNIT = "\x00\x00\x01"
+    UNIT3 = '\x00\x00\x01'
+    UNIT4 = '\x00\x00\x00\x01'
     PS = 1396
     TS_INCR = 3600
-    DATAMOSH_RATE = 0.1
+    DATAMOSH_RATE = 0.01
 
     def __init__(self, *args, **kwargs):
         super(H264NalLayer, self).__init__(*args, **kwargs)
@@ -154,6 +156,7 @@ class H264NalLayer(NetLayer):
             return None
 
         if incoming and (conn_id not in self.connections):
+            self.log("Created new connection: {}".format(conn_id))
             self.connections[conn_id] = {}
 
         return self.connections.get(conn_id)
@@ -168,7 +171,7 @@ class H264NalLayer(NetLayer):
             yield self.passthru(src, header, data)
             return
         elif len(conn) == 0:
-            conn["seq_num"] = 0
+            conn["seq_num"] = None
             conn["frag_unit_started"] = False
             conn["rencoded_buffer"] = ''
             conn["fragment_buffer"] = ''
@@ -185,6 +188,8 @@ class H264NalLayer(NetLayer):
             header["nal_timestamp"] = timestamp
             if conn["nal_timestamp"] is None:
                 conn["nal_timestamp"] = timestamp
+            if conn["seq_num"] is None:
+                conn["seq_num"] = seq_num
 
             # The 8th bit of payload_type is the 'marker bit' flag
             # Move it to the 9th bit of `flags` & remove from `payload_type`
@@ -204,7 +209,7 @@ class H264NalLayer(NetLayer):
                 # Unfragmented
                 if fragment_type < 24:
                     header["nal_type"] = n0 & 0x1F
-                    h264_fragment = self.UNIT + nal_unit
+                    h264_fragment = self.UNIT4 + nal_unit
                     yield self.bubble(src, header, h264_fragment)
 
                 # Fragmented with FU-A
@@ -212,7 +217,7 @@ class H264NalLayer(NetLayer):
                     # Start of fragment:
                     if n1 & 0x80:
                         conn["nal_type_buffer"] = n1 & 0x1F
-                        conn["fragment_buffer"] = self.UNIT + chr((n0 & 0xE0) | (n1 & 0x1F)) + nal_unit[2:]
+                        conn["fragment_buffer"] = self.UNIT4 + chr((n0 & 0xE0) | (n1 & 0x1F)) + nal_unit[2:]
 
                     # End of a fragment
                     #header["nal_type"] = self.nal_type
@@ -238,12 +243,14 @@ class H264NalLayer(NetLayer):
             return
 
         conn["rencoded_buffer"] += data
-        if self.UNIT not in conn["rencoded_buffer"]:
+        if self.UNIT3 not in conn["rencoded_buffer"]:
             return
 
         # TODO also accept 0x00 0x00 0x01 as UNIT
-        usplit = map(lambda x: x[1:] if x and x[0] == '\x00' else x, conn["rencoded_buffer"].split(self.UNIT))
-        conn["rencoded_buffer"] = self.UNIT + usplit[-1]
+        usplit = map(lambda x: x[:-1] if x and x[-1] == '\x00' else x, conn["rencoded_buffer"].split(self.UNIT3))
+        #usplit = conn["rencoded_buffer"].split(self.UNIT4)
+
+        conn["rencoded_buffer"] = self.UNIT4 + usplit[-1]
 
         # Assert that there wasn't data before the first H.624 frame
         # Otherwise, drop it with a warning
@@ -258,6 +265,7 @@ class H264NalLayer(NetLayer):
             if h0 & 0x1F == 5:
                 # Implement datamoshing by skipping IDR's
                 if self.datamosh and random.random() > self.DATAMOSH_RATE: 
+                    self.log("skipping IDR for datamosh")
                     continue
 
             if h0 & 0x1F in {5, 1}: # IDR's & Coded slices increment timestamp
