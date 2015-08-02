@@ -46,5 +46,5 @@ video_filter_layer.register_child(video_layer)
 recorder_layer = util.RecorderLayer()
 video_layer.register_child(recorder_layer)
 
-ffmpeg_layer = video.FfmpegLayer("sh", "scripts/haxed_loop.sh", "loop:loop.h264")
+ffmpeg_layer = video.FfmpegLayer("sh", "scripts/haxed_loop.sh", "loop:hack.h264")
 recorder_layer.register_child(ffmpeg_layer)
