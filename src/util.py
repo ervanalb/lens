@@ -134,12 +134,12 @@ class PrintLayer(NetLayer):
 
     # coroutine
     def write(self, dst, header, payload):
-        print ">", payload
+        self.log("> {}", payload)
         return self.write_back(dst, header, payload)
 
     # coroutine
     def on_read(self, src, header, payload):
-        print "<", payload
+        self.log("< {}", payload)
         return self.bubble(src, header, payload)    
 
 class RecorderLayer(NetLayer):
@@ -172,26 +172,24 @@ class RecorderLayer(NetLayer):
 class PipeLayer(NetLayer):
     NAME = "pipe"
     COMMAND = ["cat", "-"]
+    ENV = {}
     CONN_ID_KEY = "tcp_conn"
     
     def __init__(self):
         super(PipeLayer, self).__init__()
         self.sps = {}
-        self.debug = False
 
     @gen.coroutine
     def write(self, dst, header, payload):
-        if self.debug:
-            print "PIPE>", len(payload)
+        self.log(">", len(payload))
         conn_id = header[self.CONN_ID_KEY]
         if conn_id not in self.sps:
-            self.sps[conn_id] = subprocess.Popen(self.COMMAND, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+            self.sps[conn_id] = subprocess.Popen(self.COMMAND, stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=self.ENV)
 
         #self.sps[conn_id].stdin.write(payload)
         output, _stderr = self.sps[conn_id].communicate(input=payload)
-        if self.debug:
-            print "Pipe stderr: ", _stderr
-            print "PIPE<", len(output)
+        self.log(": ", _stderr)
+        self.log(">", len(output))
         del self.sps[conn_id]
         return self.write_back(dst, header, output)
 
@@ -208,3 +206,12 @@ class PipeLayer(NetLayer):
 
         yield self.passthru(src, header, output)
 
+class VimLayer(PipeLayer):
+    NAME = "vim"
+    COMMAND = ["vipe"]
+    ENV = {"EDITOR": "/usr/bin/vim", "VISUAL": "/usr/bin/vim", "HOME": "/root/"}
+    
+    def match(self, src, header):
+        if "http_headers" in header:
+            return "text/html" in header["http_headers"].last("content-type", "")
+        return True

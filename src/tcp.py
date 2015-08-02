@@ -1,4 +1,4 @@
-from ethernet import NetLayer
+from base import NetLayer
 
 from tornado import gen
 

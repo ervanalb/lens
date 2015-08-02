@@ -1,5 +1,6 @@
 import tornado.gen as gen
 from tornado.ioloop import IOLoop
+import traceback
 
 class LayerMeta(type):
     layer_classes = {}

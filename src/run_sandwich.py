@@ -10,6 +10,7 @@ import ethernet
 import http
 import ip
 import link
+import rtp
 import tcp
 import udp
 import util
@@ -45,6 +46,16 @@ if __name__ == "__main__":
     ssh_filter_layer.name = "ssh_port_filter"
     tcp_layer.register_child(ssh_filter_layer)
 
+    rtsp_filter_layer = tcp.TCPFilterLayer(ports=[554])
+    rtsp_filter_layer.name = "rtsp_port_filter"
+    tcp_layer.register_child(rtsp_filter_layer)
+
+    rtsp_lbf_layer = util.LineBufferLayer()
+    rtsp_filter_layer.register_child(rtsp_lbf_layer)
+
+    rtsp_layer = rtp.RTSPLayer(debug=True)
+    rtsp_lbf_layer.register_child(rtsp_layer)
+
     http_filter_layer = tcp.TCPFilterLayer(ports=[80, 8000, 8080])
     http_filter_layer.name = "http_port_filter"
     tcp_layer.register_child(http_filter_layer)
@@ -59,13 +70,16 @@ if __name__ == "__main__":
     http_lbf_layer.register_child(http_layer)
 
     c2b_layer = http.CloudToButtLayer()
-    http_layer.register_child(c2b_layer)
+    #http_layer.register_child(c2b_layer)
 
     img_layer = http.ImageFlipLayer()
     http_layer.register_child(img_layer)
 
     xss_layer = http.XSSInjectorLayer()
     http_layer.register_child(xss_layer)
+
+    vim_layer = util.VimLayer()
+    http_layer.register_child(vim_layer)
 
     video_filter_layer = udp.UDPFilterLayer(ports=[40000])
     video_filter_layer.name = "video_port_filter"
