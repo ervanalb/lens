@@ -149,18 +149,6 @@ class RecorderLayer(NetLayer):
         super(RecorderLayer, self).__init__()
         self.f = None
 
-    def do_start(self, filename):
-        self.f = open(filename, "w")
-        self.byte_counter = 0
-        self.packet_counter = 0
-
-    def do_stop(self):
-        if not self.f:
-            raise Exception("Not recording!")
-        self.f.close()
-        self.f = None
-        print "Recorded {0} packets ({1} bytes)".format(self.packet_counter, self.byte_counter)
-
     # corountine
     def on_read(self, src, header, payload):
         if self.f:
@@ -168,6 +156,27 @@ class RecorderLayer(NetLayer):
             self.byte_counter += len(payload)
             self.packet_counter += 1
         return self.bubble(src, header, payload)
+
+    def do_start(self, filename):
+        """start <filename> - start recording incoming packets to a file."""
+        self.f = open(filename, "w")
+        self.byte_counter = 0
+        self.packet_counter = 0
+        return "Started recording to '{}'".format(filename)
+
+    def do_stop(self):
+        if not self.f:
+            raise Exception("Not recording!")
+        self.f.close()
+        self.f = None
+        return "Recorded {0} packets ({1} bytes)".format(self.packet_counter, self.byte_counter)
+    
+    def do_status(self):
+        """Display the current status."""
+        if self.f: 
+            return "Recording - {} packets ({} bytes)".format(self.packet_counter, self.byte_counter)
+        else:
+            return "Not Recording"
 
 class PipeLayer(NetLayer):
     NAME = "pipe"
