@@ -20,8 +20,8 @@ class CommandShell(object):
         self.layer_classes = base.LayerMeta.layer_classes
         self.input_buffer = ""
 
-        ioloop = IOLoop.current()
-        ioloop.add_handler(0, self.handle_input, ioloop.READ)
+        self.ioloop = IOLoop.current()
+        self.ioloop.add_handler(0, self.handle_input, IOLoop.READ)
 
         fcntl.fcntl(self.input_file.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
         self.write_prompt()
@@ -101,7 +101,8 @@ class CommandShell(object):
             try:
                 result = shell_fn(*arguments)
             except ShellQuit:
-                raise
+                self.ioloop.stop()
+                return
             except Exception as e:
                 result = traceback.format_exc()
         else:
@@ -162,16 +163,60 @@ class CommandShell(object):
         raise ShellQuit
 
     def do_add(self, parentname, layername, *args):
-        """add <parent> <layername> (<args>...)- Create a layer."""
+        """add <layer> <new_layer_name> (<args>...)- Create <new_layer_name> as a child of <layer>."""
         l = self.layer_classes[layername](*args)
         parent = self.layers[parentname]
         parent.register_child(l)
-        print "Registered '{}'".format(self.layer_name(l))
+        print "Added '{0}'".format(self.layer_name(l))
 
     def do_del(self, layername):
-        """del <layername> - Delete a layer."""
+        """del <layer> - Delete a layer."""
         l = self.layers[layername]
+        if not hasattr(l, "parent"):
+            return "'{0}' has no parent and therefore can't be deleted".format(layername)
         l.parent.unregister_child(l)
+        return "Deleted '{0}'".format(layername)
+
+    def do_del(self, layername):
+        """del <layer> - Delete <layer> and all its descendants."""
+        l = self.layers[layername]
+        if not hasattr(l, "parent"):
+            return "'{0}' has no parent and therefore can't be deleted".format(layername)
+        l.parent.unregister_child(l)
+        return "Deleted '{0}'".format(layername)
+
+    def do_del_rejoin(self, layername):
+        """del_rejoin <layer> - Delete <layer>, and have its parent inherit its children."""
+        l = self.layers[layername]
+        if not hasattr(l, "parent"):
+            return "'{0}' has no parent and therefore can't be deleted".format(layername)
+        p = l.parent
+        for c in l.children:
+            l.unregister_child(c)
+            p.register_child(c)
+        l.parent.unregister_child(l)
+        return "Deleted '{0}'".format(layername)
+
+    def do_add_before(self, layer, layername, *args):
+        """add_before <layer> <new_layer_name> (<args>...)- Insert <new_layer_name> immediately before <layer>."""
+        youngest = self.layers[layer]
+        middle = self.layer_classes[layername](*args)
+        oldest = youngest.parent
+        oldest.unregister_child(youngest)
+        oldest.register_child(middle)
+        middle.register_child(youngest)
+        print "Added '{0}' before '{1}'".format(self.layer_name(middle), layer)
+
+    def do_add_after(self, layer, layername, *args):
+        """add_after <layer> <new_layer_name> (<args>...)- Insert <new_layer_name> immediately after <layer>."""
+        oldest = self.layers[layer]
+        middle = self.layer_classes[layername](*args)
+        for youngest in oldest.children:
+            oldest.unregister_child(youngest)
+            middle.register_child(youngest)
+        oldest.register_child(middle)
+
+        print "Added '{0}' after '{1}'".format(self.layer_name(middle), layer)
 
     def do_show(self, layername = None):
         """show [layername] - Show tree of connected layers."""
