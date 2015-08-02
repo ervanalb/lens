@@ -24,7 +24,6 @@ if __name__ == "__main__":
     tap.mitm()
     
     sh = shell.CommandShell(root)
-
     try:
         IOLoop.instance().start()
     finally:

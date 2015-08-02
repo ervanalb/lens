@@ -4,15 +4,25 @@ from base import NetLayer
 from util import MultiOrderedDict, PipeLayer
 from tornado import gen, httputil
 
+def zlib_compress(data, wbits):
+    cobj = zlib.compressobj(9, zlib.DEFLATED, wbits)
+    return cobj.compress(data) + cobj.flush()
+
 class HTTPLayer(NetLayer):
     NAME = "http"
 
     ENCODERS = {
-        "gzip": zlib.compress,
+        "gzip": lambda x: zlib_compress(x, 16 | zlib.MAX_WBITS),
+        "deflate": lambda x: zlib_compress(x, -zlib.MAX_WBITS),
+        "zlib": lambda x: zlib_compress(x, zlib.MAX_WBITS),
+        "identity": lambda x: x,
     }
 
     DECODERS = {
-        "gzip": zlib.decompress,
+        "gzip": lambda x: zlib.decompress(x, 16 | zlib.MAX_WBITS),
+        "deflate": lambda x: zlib.decompress(x, -zlib.MAX_WBITS),
+        "zlib": lambda x: zlib.decompress(x, zlib.MAX_WBITS),
+        "identity": lambda x: x,
     }
 
     CONN_ID_KEY = "tcp_conn"
@@ -102,10 +112,14 @@ class HTTPLayer(NetLayer):
                         break
                     body += data
 
+            conn["http_decoded"] = False
             if "content-encoding" in headers:
                 encoding = headers.last("content-encoding")
-                if encoding in self.ENCODERS:
-                    body = self.ENCODERS[encoding](body)
+                try:
+                    body = self.DECODERS[encoding](body)
+                    conn["http_decoded"] = True
+                except:
+                    print "Unable to decompress", len(body), content_length
 
             conn["lbl_enable"](dst)
             conn["http_headers"] = headers
@@ -161,10 +175,15 @@ class HTTPLayer(NetLayer):
                         break
                     body += data
 
+            conn["http_decoded"] = False
             if "content-encoding" in headers:
                 encoding = headers.last("content-encoding")
-                if encoding in self.ENCODERS:
-                    body = self.ENCODERS[encoding](body)
+                if encoding in self.DECODERS:
+                    try:
+                        body = self.DECODERS[encoding](body)
+                        conn["http_decode_failed"] = True
+                    except:
+                        self.log("Unable to decode content '{}' len={}/{}", encoding, len(body), content_length)
 
             conn["lbl_enable"](dst)
             conn["http_headers"] = headers
@@ -191,16 +210,21 @@ class HTTPLayer(NetLayer):
         #yield self.write_back(dst, conn, start_line)
 
         headers = conn["http_headers"]
-        if "content-length" in headers:
-            headers.set("Content-Length", str(len(data)))
-        if "content-encoding" in headers:
+        if "content-encoding" in headers and conn["http_decoded"]:
             encoding = headers.last("content-encoding")
             if encoding in self.ENCODERS:
                 data = self.ENCODERS[encoding](data)
+
+        if "content-length" in headers:
+            headers.set("Content-Length", str(len(data)))
+
         # Remove caching headers
         headers.remove("if-none-match")
         headers.remove("if-modified-since")
         headers.remove("etag")
+
+        # Try to prevent HTTPS upgrade
+        headers.remove("upgrade")
 
         for key, value in headers:
             multiline_value = value.replace("\n", "\n ")
@@ -226,14 +250,14 @@ class ImageFlipLayer(PipeLayer):
     def match(self, src, header):
         if "http_headers" not in header:
             return False
-        return "image" in header["http_headers"].last("content-type", "")
+        return header["http_decoded"] and "image" in header["http_headers"].last("content-type", "")
 
 class XSSInjectorLayer(NetLayer):
     NAME = "xss"
     def match(self, src, header):
         if "http_headers" not in header:
             return False
-        return "javascript" in header["http_headers"].last("content-type", "")
+        return header["http_decoded"] and "javascript" in header["http_headers"].last("content-type", "")
 
     @gen.coroutine
     def write(self, dst, header, payload):
@@ -245,7 +269,7 @@ class CloudToButtLayer(NetLayer):
     def match(self, src, header):
         if "http_headers" not in header:
             return False
-        return "text" in header["http_headers"].last("content-type", "")
+        return header["http_decoded"] and "text" in header["http_headers"].last("content-type", "")
 
     # coroutine
     def write(self, dst, header, payload):

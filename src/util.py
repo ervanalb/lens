@@ -35,12 +35,10 @@ class LineBufferLayer(NetLayer):
             self.buffers[conn_id][src] = ""
             yield self.bubble(src, header, buff)
         else:
-            #print "> recvd data from ", src, len(data), len(self.buffers[conn_id][src])
             self.buffers[conn_id][src] += data
             if self.enabled[conn_id][src]:
                 while '\n' in self.buffers[conn_id][src]:
                     line, _newline, self.buffers[conn_id][src] = self.buffers[conn_id][src].partition('\n')
-                    #print ">>>", line1460
                     yield self.bubble(src, header, line + "\n")
 
             if not self.enabled[conn_id][src]:
@@ -73,7 +71,7 @@ class MultiOrderedDict(list):
     def remove(self, key):
         key = key.lower()
         if key in self.d:
-            print "Removing", key, ":", self.d[key]
+            #print "Removing", key, ":", self.d[key]
             del self.d[key]
             for (i, (k, v)) in enumerate(self):
                 if k.lower() == key:
@@ -188,6 +186,9 @@ class PipeLayer(NetLayer):
         super(PipeLayer, self).__init__()
         self.sps = {}
 
+    def match(self, src, header):
+        return self.CONN_ID_KEY in header
+
     @gen.coroutine
     def write(self, dst, header, payload):
         self.log(">", len(payload))
@@ -222,5 +223,5 @@ class VimLayer(PipeLayer):
     
     def match(self, src, header):
         if "http_headers" in header:
-            return "text/html" in header["http_headers"].last("content-type", "")
+            return header["http_decoded"] and "text/html" in header["http_headers"].last("content-type", "")
         return True
