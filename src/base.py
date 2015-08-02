@@ -28,6 +28,7 @@ class NetLayer(object):
         self.children = []
         self.debug = debug
         self.loggers = []
+        self.name = self.NAME
 
     def register_child(self, child):
         self.children.append(child)

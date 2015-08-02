@@ -9,6 +9,7 @@ from tornado.iostream import IOStream
 from base import NetLayer
 
 class LinkLayer(NetLayer):
+    NAME="link"
     SNAPLEN=1550
     ETH_P_ALL = 3 
 

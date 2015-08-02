@@ -3,8 +3,7 @@ import base
 import fcntl
 import os
 from tornado.ioloop import IOLoop
-
-import tornado.ioloop
+import traceback
 
 class ShellQuit(Exception):
     pass
@@ -13,20 +12,46 @@ class CommandShell(object):
     CMD_PREFIX = "do_"
     prompt = "> "
 
-    def __init__(self):
+    def __init__(self, root):
         self.input_file = open("/dev/stdin", "r")
         self.output_file = open("/dev/stdout", "w")
 
-        self.layers = {}
+        self.root = root
         self.layer_classes = base.LayerMeta.layer_classes
         self.input_buffer = ""
 
-        ioloop = tornado.ioloop.IOLoop.current()
+        ioloop = IOLoop.current()
         ioloop.add_handler(0, self.handle_input, ioloop.READ)
 
         fcntl.fcntl(self.input_file.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
         self.write_prompt()
         base.LayerMeta.instance_callback = self.instance_callback
+
+    @property
+    def layers(self):
+        found = []
+        def find_layers(node):
+            found.append(node)
+            for n in node.children:
+                find_layers(n)
+
+        def get_unique_name(layers, layer):
+            if layer.name in layers:
+                i=2
+                while True:
+                    name = "{0}_{1}".format(layer.name, i)
+                    if name not in layers:
+                        break
+                return name
+            else:
+                return layer.name
+
+        find_layers(self.root)
+        layers_dict = {}
+        for layer in found:
+            name = get_unique_name(layers_dict, layer)
+            layers_dict[name] = layer
+        return layers_dict
 
     def instance_callback(self, layer_instance):
         #print "register layer", layer_instance
@@ -78,7 +103,7 @@ class CommandShell(object):
             except ShellQuit:
                 raise
             except Exception as e:
-                result = "Shell Error: {}".format(e)
+                result = traceback.format_exc()
         else:
             layer, command = command, None
             if len(arguments) > 0:
@@ -104,27 +129,6 @@ class CommandShell(object):
         if result is not None:
             self.output_file.write(str(result) + "\n")
         self.write_prompt()
-
-    def register_layer_instance(self, layer, basename = None):
-        if basename is None:
-            basename = layer.NAME
-        if basename in self.layers:
-            i=2
-            while True:
-                name = "{0}_{1}".format(basename, i)
-                if name not in self.layers:
-                    break
-        else:
-            name = basename
-        self.layers[name] = layer
-        return name
-
-    def unregister_layer_instance(self, layer):
-        l_n = self.layer_name(layer)
-        del self.layers[l_n]
-        for c in layer.children:
-            self.unregister_layer_instance(c)
-        print "Deleted '{}'".format(l_n)
 
     def layer_name(self, layer):
         return {v: k for k, v in self.layers.items()}.get(layer, None)
@@ -162,17 +166,15 @@ class CommandShell(object):
         l = self.layer_classes[layername](*args)
         parent = self.layers[parentname]
         parent.register_child(l)
-        n = self.register_layer_instance(l)
-        print "Registered '{}'".format(n)
+        print "Registered '{}'".format(self.layer_name(l))
 
     def do_del(self, layername):
         """del <layername> - Delete a layer."""
         l = self.layers[layername]
-        self.unregister_layer_instance(l)
         l.parent.unregister_child(l)
 
-    def do_show(self, layername):
-        """show <layername> - Show tree of connected layers."""
+    def do_show(self, layername = None):
+        """show [layername] - Show tree of connected layers."""
         def printer(l, last = [True]):
             l_n = self.layer_name(l)
             prefix = "".join(["   " if last_layer else "|  " for last_layer in last[:-1]])
@@ -182,9 +184,12 @@ class CommandShell(object):
                     printer(child, last + [False])
                 printer(l.children[-1], last + [True])
 
-        try:
-            l = self.layers[layername]
-        except KeyError:
-            return "No such layer '{}'".format(layername)
+        if layername is None:
+            l = self.root
+        else:
+            try:
+                l = self.layers[layername]
+            except KeyError:
+                return "No such layer '{}'".format(layername)
 
         printer(l)
