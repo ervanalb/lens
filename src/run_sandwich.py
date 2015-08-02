@@ -81,6 +81,14 @@ if __name__ == "__main__":
     vim_layer = util.VimLayer()
     #http_layer.register_child(vim_layer)
 
+    dns_filter_layer = udp.UDPFilterLayer(ports=[53])
+    dns_filter_layer.name = "dns_port_filter"
+    udp_layer.register_child(dns_filter_layer)
+
+    #dns_vim_layer = util.VimLayer()
+    #dns_vim_layer.CONN_ID_KEY = "udp_conn"
+    #dns_filter_layer.register_child(dns_vim_layer)
+
     video_filter_layer = udp.UDPFilterLayer(ports=[40000])
     video_filter_layer.name = "video_port_filter"
     udp_layer.register_child(video_filter_layer)
