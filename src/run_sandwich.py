@@ -8,9 +8,7 @@ from tornado.ioloop import IOLoop
 
 if __name__ == "__main__":
 
-    #root = link.LinkLayer()
-    import ethernet as eth
-    root = eth.EthernetLayer()
+    root = link.LinkLayer()
 
     if len(sys.argv) == 2:
         graph = sys.argv[1]
