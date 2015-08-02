@@ -96,7 +96,5 @@ if __name__ == "__main__":
 
     try:
         IOLoop.instance().start()
-    except KeyboardInterrupt:
-        pass
     finally:
         tap.passthru()

@@ -4,6 +4,8 @@ import fcntl
 import os
 from tornado.ioloop import IOLoop
 import traceback
+import sys
+import signal
 
 class ShellQuit(Exception):
     pass
@@ -13,17 +15,26 @@ class CommandShell(object):
     prompt = "> "
 
     def __init__(self, root):
-        self.input_file = open("/dev/stdin", "r")
-        self.output_file = open("/dev/stdout", "w")
+        self.input = sys.stdin
+        self.output = sys.stdout
+
+        fcntl.fcntl(self.output.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
 
         self.root = root
         self.layer_classes = base.LayerMeta.layer_classes
         self.input_buffer = ""
 
         self.ioloop = IOLoop.current()
-        self.ioloop.add_handler(0, self.handle_input, IOLoop.READ)
+        self.ioloop.add_handler(self.input.fileno(), self.handle_input, IOLoop.READ)
 
-        fcntl.fcntl(self.input_file.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
+
+        def enable_sig_handler():
+            def _sig_handler(signum, frame):
+                self.ioloop.current().add_callback(self.sig_handler, signum, frame)
+            signal.signal(signal.SIGTERM, _sig_handler)
+            signal.signal(signal.SIGINT, _sig_handler)
+        self.ioloop.add_callback(enable_sig_handler)
+
         self.write_prompt()
         base.LayerMeta.instance_callback = self.instance_callback
 
@@ -58,23 +69,30 @@ class CommandShell(object):
         #self.register_layer_instance(layer_instance)
 
         def _log_handler(message):
-            self.output_file.write("\r[{0:s}] {1}\n".format(layer_instance.NAME, message))
+            self.output.write("\r[{0:s}] {1}\n".format(layer_instance.NAME, message))
             self.write_prompt()
 
         layer_instance.add_logger(_log_handler, debug_only=True)
 
+    def sig_handler(self, signum, frame):
+        self.input_buffer = ""
+        self.output.write("\n")
+        self.write_prompt()
+
     def write_prompt(self):
-        self.output_file.write(self.prompt)
-        self.output_file.write(self.input_buffer)
-        self.output_file.flush()
+        self.output.write(self.prompt)
+        self.output.write(self.input_buffer)
+        self.output.flush()
 
     def handle_input(self, fd, events):
-        new_data = self.input_file.read()
-        self.input_buffer += new_data
+        new_data = self.input.read()
 
-        if new_data == "": # Ctrl+D or something
-            self.input_buffer = ""
-            self.handle_command("")
+        if new_data == "": # Ctrl-D
+            self.output.write("\n")
+            self.ioloop.stop()
+            return
+
+        self.input_buffer += new_data
 
         while "\n" in self.input_buffer:
             i = self.input_buffer.index("\n") + 1
@@ -86,7 +104,7 @@ class CommandShell(object):
 
         if len(arguments) == 0:
             if "\n" not in input_line:
-                self.output_file.write("\n")
+                self.output.write("\n")
             self.write_prompt()
             return
 
@@ -128,7 +146,7 @@ class CommandShell(object):
                 result = "Invalid layer '{}'".format(layer)
 
         if result is not None:
-            self.output_file.write(str(result) + "\n")
+            self.output.write(str(result) + "\n")
         self.write_prompt()
 
     def layer_name(self, layer):
