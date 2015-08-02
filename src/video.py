@@ -19,43 +19,23 @@ def get_script(path):
 
 class FfmpegLayer(NetLayer):
     NAME="ffmpeg"
-    COMMANDS = {
-        #"negflip": ["/usr/bin/ffmpeg", "-y", "-i",  "pipe:0", "-vf", "negate, vflip", "-f", "h264", "pipe:1"],
-        "negflip":  ["/usr/bin/ffmpeg", "-y", "-f", "h264", "-i", "-", "-vf", "negate, vflip", "-f", "h264", "-"],
-        "hack":     ["sh", get_script("../misc/haxed.sh")],
-        "layer":    ["/usr/bin/ffmpeg", "-y", "-f", "h264", "-i", "-", "-i", "pipe:???", "-filter_complex", """
-            [1:v] crop=1/2*in_w:1/2*in_h:1/2*in_w:0 [loop];
-            [0:v] [loop] overlay=1/2*main_w:0 [output]""", "-map", "[output]", "-f", "h264", "-"],
-        "tee":      ["tee", "out.h264"],
-        "cat":      ["cat"]
-    }
     UNIT1 = '\x00\x00\x01'
     UNIT2 = '\x00\x00\x00\x01'
 
     def __init__(self, *args, **kwargs):
+        super(FfmpegLayer, self).__init__(**kwargs)
+
         #TODO: This only supports one stream/connection
 
-        ffmpeg_log = kwargs.pop("log", "/tmp/ffmpeg.log")
-        cmd_name = kwargs.pop("cmd", "hack")
-
-        super(FfmpegLayer, self).__init__(*args, **kwargs)
-
-        if cmd_name not in self.COMMANDS:
-            self.log("Invalid ffmpeg command name '{}', using cat. (valid: {})", cmd_name, " ".join(self.COMMANDS))
-            cmd_name = "cat"
-        else:
-            self.log("ffmpeg using command '{}'".format(cmd_name))
-
-
+        ffmpeg_log = kwargs.pop("log", "/dev/null")
         ffmpeg_log = open(ffmpeg_log, "w")
 
         self.ioloop = IOLoop.instance()
 
-        pipe_fd = self.make_loop("loop.h264")
-        cmd = ["/usr/bin/ffmpeg", "-y", "-f", "h264", "-i", "pipe:{0}".format(pipe_fd), "-i", "-", "-filter_complex", """
-            [1:v] crop=1/2*in_w:1/2*in_h:1/2*in_w:0 [loop];
-            [0:v] [loop] overlay=1/2*main_w:0 [output]""", "-map", "[output]", "-f", "h264", "-"]
-        #self.ffmpeg = subprocess.Popen(self.COMMANDS[cmd_name], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=ffmpeg_log)
+        args = ["pipe:{0}".format(self.make_loop(arg[5:])) if arg.startswith("loop:") else arg for arg in args]
+        
+        cmd = args
+
         self.ffmpeg = subprocess.Popen(cmd, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=ffmpeg_log)
 
         fcntl.fcntl(self.ffmpeg.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
@@ -82,9 +62,18 @@ class FfmpegLayer(NetLayer):
         def on_writable(fd, event):
             if event & IOLoop.WRITE:
                 n = 0
-                n = os.write(fd, loop[pos[0]:]) + pos[0]
+                try:
+                    n = os.write(fd, loop[pos[0]:]) + pos[0]
+                except OSError as e:
+                    if e.errno != 11:
+                        raise
                 while n == len(loop):
-                    n = os.write(fd, loop)
+                    try:
+                        n = os.write(fd, loop)
+                    except OSError as e:
+                        if e.errno != 11:
+                            raise
+                        n = 0
                 pos[0] = n
 
         self.ioloop.add_handler(fifo_write, on_writable, IOLoop.WRITE)
