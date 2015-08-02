@@ -43,9 +43,9 @@ class UDPFilterLayer(NetLayer):
     NAME = "udp_filter"
     """ Pass all UDP packets with a given port through """
 
-    def __init__(self, ports = []):
-        super(UDPFilterLayer, self).__init__()
-        self.ports = ports
+    def __init__(self, *args, **kwargs):
+        super(UDPFilterLayer, self).__init__(**kwargs)
+        self.ports = [int(a) for a in args]
 
     def match(self, src, header):
         return header["udp_dport"] in self.ports or header["udp_sport"] in self.ports

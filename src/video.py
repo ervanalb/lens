@@ -50,6 +50,11 @@ class FfmpegLayer(NetLayer):
         self.ffmpeg_ready = False
         self.incoming_ffmpeg = ""
 
+    def cleanup(self):
+        super(FfmpegLayer, self).cleanup()
+        self.ioloop.remove_handler(self.ffmpeg.stdout.fileno())
+        self.ffmpeg.terminate()
+
     def make_loop(self, filename):
         loop = open(filename,"r").read()
         (fifo_read, fifo_write) = os.pipe()

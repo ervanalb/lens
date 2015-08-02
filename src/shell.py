@@ -254,5 +254,13 @@ class CommandShell(object):
                 l = self.layers[layername]
             except KeyError:
                 return "No such layer '{}'".format(layername)
-
         printer(l)
+
+    def do_load(self, graph_file):
+        """load <graph_file> - Rebuild the tree according to <graph_file>"""
+        for child in self.root.children:
+            self.root.unregister_child(child)
+
+        v = {"root": self.root}
+        execfile(graph_file, v)
+        print "Loaded '{0}'".format(graph_file)

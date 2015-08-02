@@ -1,2 +1,3 @@
 dpkt==1.8.6
 pyusb==1.0.0b2
+tornado==4.2.1

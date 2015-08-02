@@ -31,12 +31,17 @@ class NetLayer(object):
         self.loggers = []
         self.name = self.NAME
 
+    def cleanup(self):
+        for child in self.children:
+            child.cleanup()
+
     def register_child(self, child):
         self.children.append(child)
         child.parent = self
 
     def unregister_child(self, child):
         self.children.remove(child)
+        child.cleanup()
 
     def resolve_child(self, src, header):
         for child in self.children:
