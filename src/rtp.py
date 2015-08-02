@@ -1,27 +1,14 @@
-import zlib
-
-from base import NetLayer
-from util import MultiOrderedDict, PipeLayer
+from base import NetLayer, gen
 from tornado import gen, httputil
+from util import MultiOrderedDict
 
-class HTTPLayer(NetLayer):
-    NAME = "http"
-
-    ENCODERS = {
-        "gzip": zlib.compress,
-    }
-
-    DECODERS = {
-        "gzip": zlib.decompress,
-    }
-
+class RTSPLayer(NetLayer):
+    NAME = "rtsp"
     CONN_ID_KEY = "tcp_conn"
 
     def __init__(self, *args, **kwargs):
-        self.ports = kwargs.pop("ports", {})
+        super(RTSPLayer, self).__init__(*args, **kwargs)
         self.connections = {}
-
-        super(HTTPLayer, self).__init__(*args, **kwargs)
 
     @gen.coroutine
     def on_read(self, src, conn, data):
@@ -39,8 +26,6 @@ class HTTPLayer(NetLayer):
         else:
             self.log("Unknown src: {}", src)
             yield self.passthru(src, conn, data)
-        #yield self.bubble(src, data, conn)
-
 
     def parse_header_line(self, hdict, line):
         if line[0].isspace():
@@ -61,10 +46,10 @@ class HTTPLayer(NetLayer):
             body = ""
             headers = MultiOrderedDict()
             try:
-                req = httputil.parse_request_start_line(req_line.strip())
-            except httputil.HTTPInputError:
+                req = httputil.RequestStartLine(*req_line.split())
+            except ValueError:
                 if req_line != "":
-                    self.log("HTTP Error: Malformed request start line: '{}'", req_line)
+                    self.log("Error: Malformed request start line: '{}'", req_line)
                 req_line = yield
                 continue
             while True:
@@ -75,26 +60,19 @@ class HTTPLayer(NetLayer):
                     break
                 self.parse_header_line(headers, header_line.strip())
 
-            if req.version == "HTTP/1.0":
-                keep_alive = headers.last("connection", "").lower().strip() == "keep-alive"
-            else:
-                keep_alive = headers.last("connection", "").lower().strip() != "close"
+            if req.version != "RTSP/1.0":
+                self.log("Unknown version! '{}'", req.version)
 
             if "content-length" in headers:
                 try:
                     content_length = int(headers.last("content-length"))
                 except ValueError:
                     content_length = None
+                    self.log("Warning: invalid content length '{}'", headers.last('content-length'))
             else:
-                content_length = None
-
-            if req.method != "POST":
-                content_length = content_length or 0
-
+                content_length = 0
             
             if header_line is not None:
-                #body += conn["lbl_buffers"][dst]
-                #conn["lbl_buffers"][dst] = ""
                 conn["lbl_disable"](dst)
                 while len(body) < content_length or content_length is None:
                     data = yield
@@ -108,8 +86,8 @@ class HTTPLayer(NetLayer):
                     body = self.ENCODERS[encoding](body)
 
             conn["lbl_enable"](dst)
-            conn["http_headers"] = headers
-            conn["http_request"] = req
+            conn["rtsp_headers"] = headers
+            conn["rtsp_request"] = req
             req_line = yield self.bubble(dst, conn, body)
 
     def response(self, conn, src, dst):
@@ -122,38 +100,35 @@ class HTTPLayer(NetLayer):
             body = ""
             headers = MultiOrderedDict()
             try:
-                resp = httputil.parse_response_start_line(start_line.strip())
-            except httputil.HTTPInputError:
+                resp = httputil.ResponseStartLine(*start_line.split())
+            except ValueError:
                 if start_line != "":
-                    self.log("HTTP Error: Malformed response start line: '{}'", start_line)
+                    self.log("Error: Malformed response start line: '{}'", start_line)
                 start_line = yield
                 continue
             while True:
                 header_line = yield
                 if header_line is None:
-                    self.log("HTTP Warning: Terminated early?")
+                    self.log("Warning: Terminated early?")
                     return
                 if not header_line.strip():
                     break
                 self.parse_header_line(headers, header_line.strip())
 
-            if resp.version == "HTTP/1.0":
-                keep_alive = headers.last("connection", "").lower().strip() == "keep-alive"
-            else:
-                keep_alive = headers.last("connection", "").lower().strip() != "close"
+            if resp.version != "RTSP/1.0":
+                self.log("Unknown version! '{}'", resp.version)
 
             if "content-length" in headers:
                 try:
                     content_length = int(headers.last("content-length"))
                 except ValueError:
                     content_length = None
+                    self.log("Warning: invalid content length '{}'", headers.last('content-length'))
             else:
-                content_length = None
+                content_length = 0
 
 
             if header_line is not None:
-                #body += conn["lbl_buffers"][dst]
-                #conn["lbl_buffers"][dst] = ""
                 conn["lbl_disable"](dst)
                 while len(body) < content_length or content_length is None:
                     data = yield
@@ -167,8 +142,8 @@ class HTTPLayer(NetLayer):
                     body = self.ENCODERS[encoding](body)
 
             conn["lbl_enable"](dst)
-            conn["http_headers"] = headers
-            conn["http_response"] = resp
+            conn["rtsp_headers"] = headers
+            conn["rtsp_response"] = resp
             start_line = yield self.bubble(dst, conn, body)
 
     @gen.coroutine
@@ -180,27 +155,23 @@ class HTTPLayer(NetLayer):
 
     @gen.coroutine
     def write(self, dst, conn, data):
-        if "http_request" in conn:
-            start_line = "{0.method} {0.path} {0.version}\r\n".format(conn["http_request"])
-        elif "http_response" in conn:
-            start_line = "{0.version} {0.code} {0.reason}\r\n".format(conn["http_response"])
+        if "rtsp_request" in conn:
+            start_line = "{0.method} {0.path} {0.version}\r\n".format(conn["rtsp_request"])
+        elif "rtsp_response" in conn:
+            start_line = "{0.version} {0.code} {0.reason}\r\n".format(conn["rtsp_response"])
         else:
             raise Exception("No start line for HTTP")
 
         output = start_line
         #yield self.write_back(dst, conn, start_line)
 
-        headers = conn["http_headers"]
+        headers = conn["rtsp_headers"]
         if "content-length" in headers:
             headers.set("Content-Length", str(len(data)))
         if "content-encoding" in headers:
             encoding = headers.last("content-encoding")
             if encoding in self.ENCODERS:
                 data = self.ENCODERS[encoding](data)
-        # Remove caching headers
-        headers.remove("if-none-match")
-        headers.remove("if-modified-since")
-        headers.remove("etag")
 
         for key, value in headers:
             multiline_value = value.replace("\n", "\n ")
@@ -217,38 +188,3 @@ class HTTPLayer(NetLayer):
         output += data
         yield self.write_back(dst, conn, output)
         #yield self.write_back(dst, conn, None)
-
-
-class ImageFlipLayer(PipeLayer):
-    NAME = "image_flip"
-    COMMAND = ["convert", "-flip", "-", "-"]
-
-    def match(self, src, header):
-        if "http_headers" not in header:
-            return False
-        return "image" in header["http_headers"].last("content-type", "")
-
-class XSSInjectorLayer(NetLayer):
-    NAME = "xss"
-    def match(self, src, header):
-        if "http_headers" not in header:
-            return False
-        return "javascript" in header["http_headers"].last("content-type", "")
-
-    @gen.coroutine
-    def write(self, dst, header, payload):
-        output = payload + "\nalert('xss');\n"
-        yield self.write_back(dst, header, output)
-
-class CloudToButtLayer(NetLayer):
-    NAME = "clout2butt"
-    def match(self, src, header):
-        if "http_headers" not in header:
-            return False
-        return "text" in header["http_headers"].last("content-type", "")
-
-    # coroutine
-    def write(self, dst, header, payload):
-        butt_data = payload.replace("cloud", "my butt")
-        return self.write_back(dst, header, butt_data)
-

@@ -9,9 +9,6 @@ import fcntl
 import os
 import socket
 
-def binprint(d):
-    print " ".join(["{0:02x}".format(ord(c)) for c in d])
-
 def get_script(path):
     return os.path.join(
             os.path.dirname(os.path.realpath(__file__)),
@@ -120,7 +117,7 @@ class FfmpegLayer(NetLayer):
 
     def do_status(self):
         """Print current ffmpeg status"""
-        return "{0.prefill_in} {0.ffmpeg_ready}".format(self)
+        return "Waiting for {0.prefill_in} frames; Streaming from ffmpeg: {0.ffmpeg_ready}".format(self)
 
 class H264NalLayer(NetLayer):
     # https://tools.ietf.org/html/rfc3984

@@ -134,12 +134,12 @@ class PrintLayer(NetLayer):
 
     # coroutine
     def write(self, dst, header, payload):
-        print ">", payload
+        self.log("> {}", payload)
         return self.write_back(dst, header, payload)
 
     # coroutine
     def on_read(self, src, header, payload):
-        print "<", payload
+        self.log("< {}", payload)
         return self.bubble(src, header, payload)    
 
 class RecorderLayer(NetLayer):
@@ -149,18 +149,6 @@ class RecorderLayer(NetLayer):
         super(RecorderLayer, self).__init__()
         self.f = None
 
-    def do_start(self, filename):
-        self.f = open(filename, "w")
-        self.byte_counter = 0
-        self.packet_counter = 0
-
-    def do_stop(self):
-        if not self.f:
-            raise Exception("Not recording!")
-        self.f.close()
-        self.f = None
-        print "Recorded {0} packets ({1} bytes)".format(self.packet_counter, self.byte_counter)
-
     # corountine
     def on_read(self, src, header, payload):
         if self.f:
@@ -169,29 +157,48 @@ class RecorderLayer(NetLayer):
             self.packet_counter += 1
         return self.bubble(src, header, payload)
 
+    def do_start(self, filename):
+        """start <filename> - start recording incoming packets to a file."""
+        self.f = open(filename, "w")
+        self.byte_counter = 0
+        self.packet_counter = 0
+        return "Started recording to '{}'".format(filename)
+
+    def do_stop(self):
+        if not self.f:
+            raise Exception("Not recording!")
+        self.f.close()
+        self.f = None
+        return "Recorded {0} packets ({1} bytes)".format(self.packet_counter, self.byte_counter)
+    
+    def do_status(self):
+        """Display the current status."""
+        if self.f: 
+            return "Recording - {} packets ({} bytes)".format(self.packet_counter, self.byte_counter)
+        else:
+            return "Not Recording"
+
 class PipeLayer(NetLayer):
     NAME = "pipe"
     COMMAND = ["cat", "-"]
+    ENV = {}
     CONN_ID_KEY = "tcp_conn"
     
     def __init__(self):
         super(PipeLayer, self).__init__()
         self.sps = {}
-        self.debug = False
 
     @gen.coroutine
     def write(self, dst, header, payload):
-        if self.debug:
-            print "PIPE>", len(payload)
+        self.log(">", len(payload))
         conn_id = header[self.CONN_ID_KEY]
         if conn_id not in self.sps:
-            self.sps[conn_id] = subprocess.Popen(self.COMMAND, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+            self.sps[conn_id] = subprocess.Popen(self.COMMAND, stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=self.ENV)
 
         #self.sps[conn_id].stdin.write(payload)
         output, _stderr = self.sps[conn_id].communicate(input=payload)
-        if self.debug:
-            print "Pipe stderr: ", _stderr
-            print "PIPE<", len(output)
+        self.log(": ", _stderr)
+        self.log(">", len(output))
         del self.sps[conn_id]
         return self.write_back(dst, header, output)
 
@@ -208,3 +215,12 @@ class PipeLayer(NetLayer):
 
         yield self.passthru(src, header, output)
 
+class VimLayer(PipeLayer):
+    NAME = "vim"
+    COMMAND = ["vipe"]
+    ENV = {"EDITOR": "/usr/bin/vim", "VISUAL": "/usr/bin/vim", "HOME": "/root/"}
+    
+    def match(self, src, header):
+        if "http_headers" in header:
+            return "text/html" in header["http_headers"].last("content-type", "")
+        return True
