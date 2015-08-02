@@ -73,7 +73,7 @@ class MultiOrderedDict(list):
     def remove(self, key):
         key = key.lower()
         if key in self.d:
-            print "Removing", key, ":", self.d[key]
+            #print "Removing", key, ":", self.d[key]
             del self.d[key]
             for (i, (k, v)) in enumerate(self):
                 if k.lower() == key:

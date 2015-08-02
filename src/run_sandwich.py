@@ -70,16 +70,16 @@ if __name__ == "__main__":
     http_lbf_layer.register_child(http_layer)
 
     c2b_layer = http.CloudToButtLayer()
-    #http_layer.register_child(c2b_layer)
+    http_layer.register_child(c2b_layer)
 
     img_layer = http.ImageFlipLayer()
     http_layer.register_child(img_layer)
 
     xss_layer = http.XSSInjectorLayer()
-    http_layer.register_child(xss_layer)
+    #http_layer.register_child(xss_layer)
 
     vim_layer = util.VimLayer()
-    http_layer.register_child(vim_layer)
+    #http_layer.register_child(vim_layer)
 
     video_filter_layer = udp.UDPFilterLayer(ports=[40000])
     video_filter_layer.name = "video_port_filter"

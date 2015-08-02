@@ -4,15 +4,23 @@ from base import NetLayer
 from util import MultiOrderedDict, PipeLayer
 from tornado import gen, httputil
 
+def zlib_compress(data, wbits):
+    cobj = zlib.compressobj(9, zlib.DEFLATED, wbits)
+    return cobj.compress(data) + cobj.flush()
+
 class HTTPLayer(NetLayer):
     NAME = "http"
 
     ENCODERS = {
-        "gzip": zlib.compress,
+        "gzip": lambda x: zlib_compress(x, 16 | zlib.MAX_WBITS),
+        "deflate": lambda x: zlib_compress(x, -zlib.MAX_WBITS),
+        "zlib": lambda x: zlib_compress(x, zlib.MAX_WBITS),
     }
 
     DECODERS = {
-        "gzip": zlib.decompress,
+        "gzip": lambda x: zlib.decompress(x, 16 | zlib.MAX_WBITS),
+        "deflate": lambda x: zlib.decompress(x, -zlib.MAX_WBITS),
+        "zlib": lambda x: zlib.decompress(x, zlib.MAX_WBITS),
     }
 
     CONN_ID_KEY = "tcp_conn"
@@ -104,8 +112,10 @@ class HTTPLayer(NetLayer):
 
             if "content-encoding" in headers:
                 encoding = headers.last("content-encoding")
-                if encoding in self.ENCODERS:
-                    body = self.ENCODERS[encoding](body)
+                try:
+                    body = self.DECODERS[encoding](body)
+                except:
+                    print "Unable to decompress", len(body), content_length
 
             conn["lbl_enable"](dst)
             conn["http_headers"] = headers
@@ -163,8 +173,11 @@ class HTTPLayer(NetLayer):
 
             if "content-encoding" in headers:
                 encoding = headers.last("content-encoding")
-                if encoding in self.ENCODERS:
-                    body = self.ENCODERS[encoding](body)
+                if encoding in self.DECODERS:
+                    try:
+                        body = self.DECODERS[encoding](body)
+                    except:
+                        print len(body), content_length, repr(body)
 
             conn["lbl_enable"](dst)
             conn["http_headers"] = headers
@@ -191,12 +204,14 @@ class HTTPLayer(NetLayer):
         #yield self.write_back(dst, conn, start_line)
 
         headers = conn["http_headers"]
-        if "content-length" in headers:
-            headers.set("Content-Length", str(len(data)))
         if "content-encoding" in headers:
             encoding = headers.last("content-encoding")
             if encoding in self.ENCODERS:
                 data = self.ENCODERS[encoding](data)
+
+        if "content-length" in headers:
+            headers.set("Content-Length", str(len(data)))
+
         # Remove caching headers
         headers.remove("if-none-match")
         headers.remove("if-modified-since")
