@@ -28,7 +28,8 @@ if __name__ == "__main__":
         print "Only one argument allowed (graph file to load)"
         sys.exit(1)
 
-    tap = driver.FakeTap()
+    #tap = driver.FakeTap()
+    tap = driver.Tap()
     tap.mitm()
     
     sh = shell.CommandShell(root)
