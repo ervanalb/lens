@@ -25,8 +25,9 @@ class FfmpegLayer(NetLayer):
 
         #TODO: This only supports one stream/connection
 
-        ffmpeg_log = kwargs.pop("log", "/dev/null")
-        ffmpeg_log = open(ffmpeg_log, "w")
+        self.ffmpeg_log = kwargs.pop("log", "/tmp/ffmpeg.log")
+        ffmpeg_logfile = open(self.ffmpeg_log, "w")
+        self.ffmpeg_returncode = None
 
         self.ioloop = IOLoop.instance()
 
@@ -34,7 +35,7 @@ class FfmpegLayer(NetLayer):
         
         cmd = args
 
-        self.ffmpeg = subprocess.Popen(cmd, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=ffmpeg_log)
+        self.ffmpeg = subprocess.Popen(cmd, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=ffmpeg_logfile)
 
         fcntl.fcntl(self.ffmpeg.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
         fcntl.fcntl(self.ffmpeg.stdin.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
@@ -88,13 +89,20 @@ class FfmpegLayer(NetLayer):
         self.last_src = src
         self.last_header = header
 
-        try:
-            self.ffmpeg.stdin.write(data)
-            self.ffmpeg.stdin.flush()
-        except IOError:
-            self.log("ERROR! FFMPEG is too slow")
+        if self.ffmpeg.returncode is None: # ffmpeg is still running
+            try:
+                self.ffmpeg.stdin.write(data)
+                self.ffmpeg.stdin.flush()
+            except IOError:
+                self.log("ERROR! FFMPEG is too slow")
 
-        if not self.ffmpeg_ready:
+            if not self.ffmpeg_ready:
+                yield self.passthru(src, header, data)
+        else:
+            if self.ffmpeg_returncode is None:
+                self.log("FFMPEG returned with error code {}, see log {} for details", 
+                        self.ffmpeg.returncode, self.ffmpeg_log)
+                self.ffmpeg_returncode = self.ffmpeg.returncode
             yield self.passthru(src, header, data)
 
     def ffmpeg_read_handler(self, fd, events):
