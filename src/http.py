@@ -273,7 +273,7 @@ class XSSInjectorLayer(NetLayer):
         yield self.write_back(dst, header, output)
 
 class CloudToButtLayer(NetLayer):
-    NAME = "clout2butt"
+    NAME = "cloud2butt"
     def match(self, src, header):
         if "http_headers" not in header:
             return False
@@ -282,6 +282,12 @@ class CloudToButtLayer(NetLayer):
     # coroutine
     def write(self, dst, header, payload):
         self.log("Performing replacement on {} bytes", len(payload))
-        butt_data = payload.replace("cloud", "my butt")
+        butt_data = payload
+        butt_data = butt_data.replace("the cloud", "my butt")
+        butt_data = butt_data.replace("the Cloud", "my Butt")
+        butt_data = butt_data.replace("The Cloud", "My Butt")
+        butt_data = butt_data.replace("The cloud", "My butt")
+        butt_data = butt_data.replace("cloud", "butt")
+        butt_data = butt_data.replace("Cloud", "Butt")
         return self.write_back(dst, header, butt_data)
 
