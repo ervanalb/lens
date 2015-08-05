@@ -112,14 +112,16 @@ class HTTPLayer(NetLayer):
                         break
                     body += data
 
-            conn["http_decoded"] = False
             if "content-encoding" in headers:
+                conn["http_decoded"] = False
                 encoding = headers.last("content-encoding")
                 try:
                     body = self.DECODERS[encoding](body)
                     conn["http_decoded"] = True
                 except:
                     print "Unable to decompress", len(body), content_length
+            else:
+                conn["http_decoded"] = True
 
             conn["lbl_enable"](dst)
             conn["http_headers"] = headers
@@ -175,8 +177,8 @@ class HTTPLayer(NetLayer):
                         break
                     body += data
 
-            conn["http_decoded"] = False
             if "content-encoding" in headers:
+                conn["http_decoded"] = False
                 encoding = headers.last("content-encoding")
                 if encoding in self.DECODERS:
                     try:
@@ -184,6 +186,9 @@ class HTTPLayer(NetLayer):
                         conn["http_decode_failed"] = True
                     except:
                         self.log("Unable to decode content '{}' len={}/{}", encoding, len(body), content_length)
+            else:
+                # Technically it was decoded with the 'identity' encoding...
+                conn["http_decoded"] = True
 
             conn["lbl_enable"](dst)
             conn["http_headers"] = headers

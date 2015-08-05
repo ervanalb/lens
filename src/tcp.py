@@ -118,7 +118,8 @@ class TCPFilterLayer(NetLayer):
         self.ports = [int(a) for a in args]
 
     def match(self, src, header):
-        return header["tcp_conn"][1][1] in self.ports or header["tcp_conn"][0][1] in self.ports
+        x = header["tcp_conn"][1][1] in self.ports or header["tcp_conn"][0][1] in self.ports
+        return x
 
 # Half Connection attributes
 # From the perspective of sending packets back through the link
@@ -148,16 +149,19 @@ class TCPLayer(NetLayer):
 
     def do_list(self):
         """List open TCP connections."""
-        self.log("Open TCP Connections ({}):", len(self.connections))
+        print "Open TCP Connections ({}):".format(len(self.connections))
         for conn_id, conn in sorted(self.connections.items(), key=lambda x: x[1]["count"]):
             fdict = {}
             sender = conn[conn["sender"]]
             receiver = conn[conn["receiver"]]
-            fdict['sseq'] = sender['seq'] - sender['seq_start']
-            fdict['sack'] = sender['ack'] - sender['ack_start']
-            fdict['rseq'] = receiver['seq'] - receiver['seq_start']
-            fdict['rack'] = receiver['ack'] - receiver['ack_start']
-            self.log(" - {sender[ip_src]}:{sender[sport]} [{sender[state]} S={sseq} A={sack}] --> {receiver[ip_src]}:{receiver[sport]} [{receiver[state]} S={rseq} A={rack}]", sender=sender, receiver=receiver, **fdict)
+            for hconn in (sender, receiver):
+                rel_seq = hconn.get('seq', -1) - hconn.get('seq_start', -1)
+                rel_ack = hconn.get('ack', -1) - hconn.get('ack_start', -1)
+                ip_src = hconn.get("ip_src", "(no ip)")
+                port = hconn.get("sport", -1)
+                state = hconn.get("state", "no-state")
+                hconn["_debug"] = "{ip_src}:{port} [{state} S={seq} A={ack}]".format(ip_src=ip_src, port=port, state=state, seq=rel_seq, ack=rel_ack)
+            print " - {0} --> {1}".format(sender["_debug"], receiver["_debug"])
 
     @gen.coroutine
     def on_read(self, src, header, payload):
