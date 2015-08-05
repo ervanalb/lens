@@ -86,7 +86,7 @@ class IPv4Layer(NetLayer):
 
         return self.write_back(dst, header, str(pkt))
     
-    def do_protos(*args):
+    def do_protos(self):
         """List statistics about protocols."""
         for protocol, count in self.protocol_stats.most_common():
             try:
