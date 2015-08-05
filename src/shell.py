@@ -65,9 +65,6 @@ class CommandShell(object):
         return layers_dict
 
     def instance_callback(self, layer_instance):
-        #print "register layer", layer_instance
-        #self.register_layer_instance(layer_instance)
-
         def _log_handler(message):
             self.output.write("\r[{0:s}] {1}\n".format(layer_instance.NAME, message))
             self.write_prompt()

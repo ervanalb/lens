@@ -19,6 +19,7 @@ import video
 if __name__ == "__main__":
 
     root = link.LinkLayer()
+    sh = shell.CommandShell(root)
 
     if len(sys.argv) == 2:
         graph = sys.argv[1]
@@ -32,7 +33,6 @@ if __name__ == "__main__":
     tap = driver.Tap()
     tap.mitm()
     
-    sh = shell.CommandShell(root)
     try:
         IOLoop.instance().start()
     finally:
