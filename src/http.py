@@ -115,11 +115,13 @@ class HTTPLayer(NetLayer):
             if "content-encoding" in headers:
                 conn["http_decoded"] = False
                 encoding = headers.last("content-encoding")
-                try:
-                    body = self.DECODERS[encoding](body)
-                    conn["http_decoded"] = True
-                except:
-                    print "Unable to decompress", len(body), content_length
+                self.log("req encoding: {}", encoding)
+                if encoding in self.DECODERS:
+                    try:
+                        body = self.DECODERS[encoding](body)
+                        conn["http_decoded"] = True
+                    except:
+                        self.log("Unable to decode content '{}' len={}/{}", encoding, len(body), content_length)
             else:
                 conn["http_decoded"] = True
 
@@ -180,10 +182,11 @@ class HTTPLayer(NetLayer):
             if "content-encoding" in headers:
                 conn["http_decoded"] = False
                 encoding = headers.last("content-encoding")
+                self.log("req encoding: {}", encoding)
                 if encoding in self.DECODERS:
                     try:
                         body = self.DECODERS[encoding](body)
-                        conn["http_decode_failed"] = True
+                        conn["http_decoded"] = True
                     except:
                         self.log("Unable to decode content '{}' len={}/{}", encoding, len(body), content_length)
             else:
@@ -278,6 +281,7 @@ class CloudToButtLayer(NetLayer):
 
     # coroutine
     def write(self, dst, header, payload):
+        self.log("Performing replacement on {} bytes", len(payload))
         butt_data = payload.replace("cloud", "my butt")
         return self.write_back(dst, header, butt_data)
 
