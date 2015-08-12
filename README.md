@@ -3,6 +3,17 @@
 
 *lens* is a framework that allows you to tap live cabling for inspection and injection.
 
+Defcon 23
+=========
+
+#### Eric & Zach are afk for a week, we'll get back to you around Aug 18th.
+
+[Slides](docs/LENS_DEFCON_23_slides.pdf) & [whitepaper](docs/lens_whitepaper.pdf) are available in the [docs/](docs) folder. We will post a link to the video when it's available.
+
+You can reach us through github, or our emails are listed in our github profiles ([Zach](https://github.com/zbanks/), [Eric](https://github.com/ervanalb/)).
+
+
+
 Hardware
 ========
 
