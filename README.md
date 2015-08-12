@@ -10,6 +10,8 @@ Defcon 23
 
 [Slides](docs/LENS_DEFCON_23_slides.pdf) & [whitepaper](docs/lens_whitepaper.pdf) are available in the [docs/](docs) folder. We will post a link to the video when it's available.
 
+Or, photos of the device we presented can be found [here](http://web.mit.edu/ervanalb/Public/lens/).
+
 You can reach us through github, or our emails are listed in our github profiles ([Zach](https://github.com/zbanks/), [Eric](https://github.com/ervanalb/)).
 
 
