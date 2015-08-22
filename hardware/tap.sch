@@ -31,14 +31,14 @@ LIBS:contrib
 LIBS:valves
 LIBS:custom
 LIBS:tap-cache
-EELAYER 24 0
+EELAYER 27 0
 EELAYER END
-$Descr A4 11693 8268
+$Descr USLetter 11000 8500
 encoding utf-8
 Sheet 1 5
-Title ""
+Title "Universal Tap Board"
 Date ""
-Rev ""
+Rev "3"
 Comp ""
 Comment1 ""
 Comment2 ""
