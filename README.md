@@ -3,6 +3,8 @@
 
 *lens* is a framework that allows you to tap live cabling for inspection and injection.
 
+![lens in action](docs/lens-in-action.jpg)
+
 Defcon 23
 =========
 
