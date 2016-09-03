@@ -1,0 +1,10 @@
+.*.swp
+.*.swo
+.*.swn
+.*.swm
+.*.swl
+*.o
+*.a
+clens
+build/
+.deps/
