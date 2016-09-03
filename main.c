@@ -21,7 +21,8 @@
 
 enum loglevel loglevel = LOGLEVEL_INFO;
 
-void coroutine ln_run_ipv4_udp(int ipv4_in, int udp_out) {
+/*
+void coroutine ln_run_read_ipv4(int ipv4_in, int udp_out) {
     while (1) {
         struct ln_pkt_ipv4 * ipv4 = NULL;
         int rc = chrecv(ipv4_in, &ipv4, sizeof ipv4, -1);
@@ -29,21 +30,15 @@ void coroutine ln_run_ipv4_udp(int ipv4_in, int udp_out) {
 
         switch (ipv4->ipv4_proto) {
         case LN_PROTO_IPV4_PROTO_UDP:;
-            struct ln_pkt_udp * udp = ln_pkt_udp_create_ipv4(ipv4);
+            struct ln_pkt_udp * udp = ln_pkt_udp_dec(&ipv4->ipv4_pkt);
             if (udp == NULL) {
                 WARN("Skipping packet");
             } else {
-                ln_pkt_raw_fdump(udp->udp_ipv4->ipv4_eth->eth_raw, stderr);
-                fprintf(stderr, " --> ");
-                ln_pkt_eth_fdump(udp->udp_ipv4->ipv4_eth, stderr);
-                fprintf(stderr, " --> ");
-                ln_pkt_ipv4_fdump(udp->udp_ipv4, stderr);
-                fprintf(stderr, " --> ");
-                ln_pkt_udp_fdump(udp, stderr);
+                ln_pkt_fdumpall(&udp->udp_pkt, stderr);
                 fprintf(stderr, "\n");
                 //rc = chsend(ipv4_out, &ipv4, sizeof ipv4, -1);
                 //if (rc < 0) goto fail;
-                ln_pkt_udp_decref(udp);
+                ln_pkt_decref(&udp->udp_pkt);
             }
             break;
         case LN_PROTO_IPV4_PROTO_ICMP:
@@ -57,7 +52,7 @@ void coroutine ln_run_ipv4_udp(int ipv4_in, int udp_out) {
             break;
         }
 
-        ln_pkt_ipv4_decref(ipv4);
+        ln_pkt_decref(&ipv4->ipv4_pkt);
     }
 
 fail:
@@ -65,7 +60,7 @@ fail:
     return;
 }
 
-void coroutine ln_run_eth_ipv4(int eth_in, int ipv4_out) {
+void coroutine ln_run_read_eth(int eth_in, int ipv4_out) {
     while (1) {
         struct ln_pkt_eth * eth = NULL;
         int rc = chrecv(eth_in, &eth, sizeof eth, -1);
@@ -73,7 +68,7 @@ void coroutine ln_run_eth_ipv4(int eth_in, int ipv4_out) {
 
         switch (eth->eth_type) {
         case LN_PROTO_ETH_TYPE_IPV4:;
-            struct ln_pkt_ipv4 * ipv4 = ln_pkt_ipv4_create_eth(eth);
+            struct ln_pkt_ipv4 * ipv4 = ln_pkt_ipv4_dec(&eth->eth_pkt);
             if (ipv4 == NULL) {
                 WARN("Skipping packet");
             } else {
@@ -94,13 +89,13 @@ fail:
     return;
 }
 
-void coroutine ln_run_raw_eth(int raw_in, int eth_out) {
+void coroutine ln_run_read_raw(int raw_in, int eth_out) {
     while (1) {
         struct ln_pkt_raw * raw;
         int rc = chrecv(raw_in, &raw, sizeof raw, -1);
         if (rc < 0) goto fail;
 
-        struct ln_pkt_eth * eth = ln_pkt_eth_create_raw(raw);
+        struct ln_pkt_eth * eth = ln_pkt_eth_dec_raw(raw);
         if (eth == NULL) {
             WARN("Skipping packet");
             ln_pkt_raw_fdump(raw, stderr);
@@ -109,7 +104,36 @@ void coroutine ln_run_raw_eth(int raw_in, int eth_out) {
             rc = chsend(eth_out, &eth, sizeof eth, -1);
             if (rc < 0) goto fail;
         }
-        ln_pkt_raw_decref(raw);
+        ln_pkt_decref(&raw->raw_pkt);
+    }
+
+fail:
+    PERROR("fail");
+    return;
+}
+*/
+
+void coroutine ln_run_read_sock(int sock, int raw_out) {
+    int * sock_src = calloc(1, 1); // random id; memory leak is ok
+    if (sock_src == NULL) goto fail;
+
+    while (1) {
+        int rc = fdin(sock, -1);
+        if (rc < 0) goto fail;
+
+        struct ln_pkt_raw * raw = ln_pkt_raw_frecv(sock);
+        if (raw == NULL && errno == EAGAIN) continue; // Not ready; retry
+        if (raw == NULL && errno == EMSGSIZE) continue; // Too big; skip
+        if (raw == NULL) goto fail;
+
+        struct ln_pkt * dec_pkt = ln_pkt_eth_dec(&raw->raw_pkt);
+        if (dec_pkt == NULL) goto fail; // Unable to decode at least ethernet
+
+        //rc = chsend(raw_out, &raw, sizeof raw, -1);
+        //if (rc < 0) goto fail;
+        ln_pkt_fdumpall(dec_pkt, stderr);
+        fprintf(stderr, "\n");
+        ln_pkt_decref(dec_pkt);
     }
 
 fail:
@@ -117,59 +141,48 @@ fail:
     return;
 }
 
-void coroutine ln_run_sock_raw(int sock, int raw_out) {
-    int * sock_src = calloc(1, 1); // random id; memory leak is ok
-    if (sock_src == NULL) goto fail;
-
+void coroutine ln_run_write_sock(int sock, int raw_in) {
     while (1) {
-        struct ln_pkt_raw * raw = calloc(1, sizeof *raw);
-        if (raw == NULL) goto fail;
-        struct ln_buf * buf = calloc(1, sizeof *buf);
-        if (buf == NULL) goto fail;
-
-discard_read:;
-        int rc = fdin(sock, -1);
+        int rc = fdout(sock, -1);
         if (rc < 0) goto fail;
-        rc = recv(sock, buf->buf_start, sizeof buf->buf_start, MSG_DONTWAIT | MSG_TRUNC);
-        if (rc < 0 && errno == EAGAIN) goto discard_read;
-        if (rc < 0) goto fail;
-        if ((size_t) rc >= sizeof buf->buf_start) goto discard_read; // Jumbo frame or something weird?
 
-        raw->raw_src = sock_src;
-        raw->raw_chain.chain_buf = buf;
-        raw->raw_chain.chain_pos = buf->buf_start;
-        raw->raw_chain.chain_last = buf->buf_start + rc;
-        raw->raw_chain.chain_next = NULL;
-
-        rc = chsend(raw_out, &raw, sizeof raw, -1);
+        struct ln_pkt_raw * raw = NULL;
+        rc = chrecv(raw_in, &raw, sizeof raw, -1);
         if (rc < 0) goto fail;
+
+        do {
+            rc = ln_pkt_raw_fsend(raw);
+        } while (rc < 0 && errno == EAGAIN);
+        if (rc < 0) goto fail;
+
+        ln_pkt_decref(&raw->raw_pkt);
     }
 
 fail:
     PERROR("fail");
     return;
+}
+
+void coroutine ln_run_setup_sock(int ctl, int sock) {
+    int raw_rx = channel(sizeof(struct ln_pkt_raw *), 16);
+    if (raw_rx < 0) PFAIL("Unable to open raw_rx channel");
+    int raw_tx = channel(sizeof(struct ln_pkt_raw *), 16);
+    if (raw_tx < 0) PFAIL("Unable to open raw_tx channel");
+
+    go(ln_run_read_sock(sock, raw_rx));
+    go(ln_run_write_sock(sock, raw_tx));
+
+    //ln_run_setup_eth(ctl, raw_rx, raw_tx);
 }
 
 int main(int argc, char ** argv) {
     int raw_sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
     if (raw_sock < 0) PFAIL("Unable to open socket");
 
-    int raw_in = channel(sizeof(struct ln_pkt_raw *), 16);
-    if (raw_in < 0) PFAIL("Unable to open raw_in channel");
+    int ctl = channel(1, 1);
+    if (ctl < 0) PFAIL("Unable to create control channel");
 
-    int eth_in = channel(sizeof(struct ln_pkt_eth *), 16);
-    if (eth_in < 0) PFAIL("Unable to open eth_in channel");
-
-    int ipv4_in = channel(sizeof(struct ln_pkt_ipv4 *), 16);
-    if (ipv4_in < 0) PFAIL("Unable to open ipv4_in channel");
-
-    int udp_in = channel(sizeof(struct ln_pkt_udp *), 16);
-    if (udp_in < 0) PFAIL("Unable to open udp_in channel");
-
-    go(ln_run_sock_raw(raw_sock, raw_in));
-    go(ln_run_raw_eth(raw_in, eth_in));
-    go(ln_run_eth_ipv4(eth_in, ipv4_in));
-    go(ln_run_ipv4_udp(ipv4_in, udp_in));
+    go(ln_run_setup_sock(ctl, raw_sock));
 
     // There's probably something more clever to do here
     while(1) msleep(-1);

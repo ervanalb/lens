@@ -128,3 +128,23 @@ void ln_chain_term(struct ln_chain * chain) {
         chain = next;
     }
 }
+
+struct iovec * ln_chain_iov = NULL;
+static size_t n_iovs = 0;
+
+// Not re-entrant
+int ln_chain_iovec(struct ln_chain * chain) {
+    size_t idx = 0;
+    while (chain != NULL) {
+        if (idx >= n_iovs) {
+            n_iovs = idx * 2;
+            ln_chain_iov = realloc(ln_chain_iov, n_iovs * sizeof *ln_chain_iov);
+            if (ln_chain_iov == NULL) MEMFAIL();
+        }
+        ln_chain_iov[idx].iov_base = chain->chain_pos;
+        ln_chain_iov[idx].iov_len = chain->chain_last -  chain->chain_pos;
+        chain = chain->chain_next;
+        idx++;
+    }
+    return idx;
+}

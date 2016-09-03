@@ -114,3 +114,5 @@ size_t ln_chain_len(const struct ln_chain * chain);
 uchar * ln_chain_offset(const struct ln_chain * chain, size_t len);
 int ln_chain_readref(struct ln_chain ** in_chain, uchar ** pos, struct ln_chain * out_chain, size_t len);
 void ln_chain_term(struct ln_chain * chain);
+int ln_chain_iovec(struct ln_chain * chain); // Not re-entrant
+extern struct iovec * ln_chain_iov;

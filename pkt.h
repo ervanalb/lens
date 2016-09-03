@@ -1,16 +1,77 @@
 #pragma once
 #include "base.h"
 
-struct ln_pkt_raw {
-    refcnt_t raw_refcnt;
-    const void * raw_src;
+#define LN_PKT_TYPE_STRUCT(TYPE) struct ln_pkt_##TYPE
+#define LN_PKT_TYPE_NAME(TYPE) ln_pkt_type_##TYPE
+#define LN_PKT_TYPE_ENCODE(TYPE) ln_pkt_##TYPE##_enc
+#define LN_PKT_TYPE_DECODE(TYPE) ln_pkt_##TYPE##_dec
+#define LN_PKT_TYPE_FDUMP(TYPE) ln_pkt_##TYPE##_fdump
 
-    struct ln_chain raw_chain;
+#define LN_PKT_TYPES \
+    X(raw) \
+    X(eth) \
+    X(ipv4) \
+    X(udp) \
+
+enum ln_pkt_type {
+    ln_pkt_type_none,
+#define X(TYPE) LN_PKT_TYPE_NAME(TYPE),
+LN_PKT_TYPES
+#undef X
 };
 
-struct ln_pkt_raw * ln_pkt_raw_create(const void * src);
-void ln_pkt_raw_decref(struct ln_pkt_raw * raw);
-void ln_pkt_raw_incref(struct ln_pkt_raw * raw);
+/* Functions to safely convert from generic ln_pkt. Example:
+ *
+ * inline struct ln_pkt_eth * LN_PKT_ETH(struct ln_pkt * pkt) {
+ *     if (pkt->pkt_type == LN_PKT_TYPE_ETH) {
+ *         return (struct ln_pkt_eth *) pkt;
+ *     return NULL;
+ * }
+ *
+ */
+/* Removed in favor of LN_PKT_CAST(...)
+#define X(TYPE) \
+    inline LN_PKT_TYPE_STRUCT(TYPE) * LN_PKT_TYPE_NAME(TYPE)##_cast (struct ln_pkt * pkt) { \
+        if (pkt->pkt_type == LN_PKT_TYPE_NAME(TYPE)) \
+            return (LN_PKT_TYPE_STRUCT(TYPE) *) pkt; \
+        return NULL; \
+    }
+LN_PKT_TYPES
+#undef X
+*/
+
+// Safely convert from generic to ln_pkt.
+// Example usage: `struct ln_pkt_raw * my_raw = LN_PKT_CAST(my_pkt, raw);`
+#define LN_PKT_CAST(pkt, TYPE) ( \
+    ((pkt)->pkt_type == LN_PKT_TYPE_NAME(TYPE)) ? (LN_PKT_TYPE_STRUCT(TYPE) *) (pkt) : NULL)
+
+struct ln_pkt {
+    // Underlying protocol/header
+    struct ln_pkt * pkt_parent;
+    // Payload/data
+    struct ln_chain pkt_chain;
+    // Reference count
+    refcnt_t pkt_refcnt;
+    // Type, see LN_PKT_TYPES
+    enum ln_pkt_type pkt_type;
+};
+
+void ln_pkt_decref(struct ln_pkt * pkt);
+void ln_pkt_incref(struct ln_pkt * pkt);
+int ln_pkt_fdump(struct ln_pkt * pkt, FILE * stream);
+int ln_pkt_fdumpall(struct ln_pkt * pkt, FILE * stream);
+
+//
+
+struct ln_pkt_raw {
+    struct ln_pkt raw_pkt;
+    int raw_fd;
+};
+
+struct ln_pkt_raw * ln_pkt_raw_frecv(int fd);
+int ln_pkt_raw_fsend(struct ln_pkt_raw * raw);
+
+struct ln_pkt_raw * ln_pkt_raw_dec(struct ln_pkt * pkt); // dup/nop, not very useful
 int ln_pkt_raw_fdump(struct ln_pkt_raw * raw, FILE * stream);
 
 //
@@ -23,19 +84,16 @@ int ln_pkt_raw_fdump(struct ln_pkt_raw * raw, FILE * stream);
 #define LN_PROTO_ETH_TYPE_IPV6 0x86DD
 
 struct ln_pkt_eth {
-    struct ln_pkt_raw * eth_raw;
-    refcnt_t eth_refcnt;
+    struct ln_pkt eth_pkt;
 
     uint8_t eth_src[6];
     uint8_t eth_dst[6];
     uint32_t eth_tag;
     uint16_t eth_type;
     uint32_t eth_crc;
-
-    struct ln_chain eth_chain;
 };
 
-struct ln_pkt_eth * ln_pkt_eth_create_raw(struct ln_pkt_raw * raw);
+struct ln_pkt * ln_pkt_eth_dec(struct ln_pkt * raw);
 void ln_pkt_eth_decref(struct ln_pkt_eth * eth);
 void ln_pkt_eth_incref(struct ln_pkt_eth * eth);
 int ln_pkt_eth_fdump(struct ln_pkt_eth * eth, FILE * stream);
@@ -49,8 +107,7 @@ int ln_pkt_eth_fdump(struct ln_pkt_eth * eth, FILE * stream);
 #define LN_PROTO_IPV4_PROTO_UDP  0x11
 
 struct ln_pkt_ipv4 {
-    struct ln_pkt_eth * ipv4_eth;
-    refcnt_t ipv4_refcnt;
+    struct ln_pkt ipv4_pkt;
 
     uchar ipv4_opts[65]; // fixme...
     uint8_t ipv4_dscp_ecn;
@@ -62,20 +119,15 @@ struct ln_pkt_ipv4 {
     uint16_t ipv4_crc;
     uint32_t ipv4_src;
     uint32_t ipv4_dst;
-
-    struct ln_chain ipv4_chain;
 };
 
-struct ln_pkt_ipv4 * ln_pkt_ipv4_create_eth(struct ln_pkt_eth * eth);
-void ln_pkt_ipv4_decref(struct ln_pkt_ipv4 * ipv4);
-void ln_pkt_ipv4_incref(struct ln_pkt_ipv4 * ipv4);
+struct ln_pkt * ln_pkt_ipv4_dec(struct ln_pkt * parent_pkt);
 int ln_pkt_ipv4_fdump(struct ln_pkt_ipv4 * ipv4, FILE * stream);
 
 //
 
 struct ln_pkt_tcp {
-    struct ln_pkt_ipv4 * tcp_ipv4;
-    refcnt_t tcp_refcnt;
+    struct ln_pkt tcp_pkt;
 
     uint16_t tcp_src;
     uint16_t tcp_dst;
@@ -86,8 +138,6 @@ struct ln_pkt_tcp {
     uint16_t tcp_crc;
     uint16_t tcp_urg;
     struct ln_chain tcp_opts_chain;
-
-    struct ln_chain tcp_chain;
 };
 
 struct ln_conn_tcp {
@@ -100,17 +150,13 @@ struct ln_conn_tcp {
 #define LN_PROTO_UDP_HEADER_LEN ((size_t) 8)
 
 struct ln_pkt_udp {
-    struct ln_pkt_ipv4 * udp_ipv4;
-    refcnt_t udp_refcnt;
+    struct ln_pkt udp_pkt;
 
     uint16_t udp_src;
     uint16_t udp_dst;
     uint16_t udp_crc;
-
-    struct ln_chain udp_chain;
 };
 
-struct ln_pkt_udp * ln_pkt_udp_create_ipv4(struct ln_pkt_ipv4 * ipv4);
-void ln_pkt_udp_decref(struct ln_pkt_udp * udp);
-void ln_pkt_udp_incref(struct ln_pkt_udp * udp);
+struct ln_pkt * ln_pkt_udp_dec(struct ln_pkt * parent_pkt);
+//struct ln_pkt * ln_pkt_udp_enc(struct ln_pkt * ipv4);
 int ln_pkt_udp_fdump(struct ln_pkt_udp * udp, FILE * stream);

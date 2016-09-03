@@ -1,37 +1,116 @@
 #include "pkt.h"
 
-// struct ln_pkt_raw
+// struct ln_pkt
 
-struct ln_pkt_raw * ln_pkt_raw_create(const void * src) {
-    struct ln_pkt_raw * raw = calloc(1, sizeof *raw);
-    if (raw == NULL) return NULL;
-
-    raw->raw_src = src;
-    return raw;
-}
-
-void ln_pkt_raw_decref(struct ln_pkt_raw * raw) {
-    if(!raw->raw_refcnt--) {
-        ln_chain_term(&raw->raw_chain);
-        free(raw);
+void ln_pkt_decref(struct ln_pkt * pkt) {
+    if(!pkt->pkt_refcnt--) {
+        if (pkt->pkt_parent != NULL)
+            ln_pkt_decref(pkt->pkt_parent);
+        ln_chain_term(&pkt->pkt_chain);
+        free(pkt);
     }
 }
 
-void ln_pkt_raw_incref(struct ln_pkt_raw * raw) {
-    raw->raw_refcnt++;
+void ln_pkt_incref(struct ln_pkt * pkt) {
+    pkt->pkt_refcnt++;
+}
+
+int ln_pkt_fdump(struct ln_pkt * pkt, FILE * stream) {
+    switch (pkt->pkt_type) {
+#define X(TYPE) case LN_PKT_TYPE_NAME(TYPE): \
+        return LN_PKT_TYPE_FDUMP(TYPE)(LN_PKT_CAST(pkt, TYPE), stream);
+LN_PKT_TYPES
+#undef X
+    case ln_pkt_type_none:
+    default: 
+        return fprintf(stream, "[unknown]");
+    }
+}
+
+int ln_pkt_fdumpall(struct ln_pkt * pkt, FILE * stream) {
+    int sum = 0;
+    while (pkt != NULL) {
+        int rc = ln_pkt_fdump(pkt, stream);
+        if (rc < 0) return rc;
+        sum += rc;
+
+        pkt = pkt->pkt_parent;
+        if (pkt != NULL) {
+            rc = fprintf(stream, " --> ");
+            if (rc < 0) return rc;
+            sum += rc;
+        }
+    }
+    return sum;
+}
+
+// struct ln_pkt_raw
+
+struct ln_pkt_raw * ln_pkt_raw_frecv(int fd) {
+    static struct ln_buf * buf = NULL; // If we don't use the buffer; cache it
+    if (buf == NULL)
+        buf = calloc(1, sizeof *buf);
+    if (buf == NULL) return NULL;
+
+    int rc = recv(fd, buf->buf_start, sizeof buf->buf_start, MSG_DONTWAIT | MSG_TRUNC);
+    if (rc < 0) return NULL;
+    if ((size_t) rc >= sizeof buf->buf_start) // Jumbo frame or something weird?
+        return (errno = EMSGSIZE), NULL;
+
+    struct ln_pkt_raw * raw = calloc(1, sizeof *raw);
+    if (raw == NULL) return NULL;
+
+    raw->raw_fd = fd;
+    raw->raw_pkt.pkt_parent = NULL;
+    raw->raw_pkt.pkt_type = ln_pkt_type_raw;
+    raw->raw_pkt.pkt_chain.chain_buf = buf;
+    raw->raw_pkt.pkt_chain.chain_pos = buf->buf_start;
+    raw->raw_pkt.pkt_chain.chain_last = buf->buf_start + rc;
+    raw->raw_pkt.pkt_chain.chain_next = NULL;
+
+    buf = NULL;
+    return raw;
+}
+
+int ln_pkt_raw_fsend(struct ln_pkt_raw * raw) {
+    int iovlen = ln_chain_iovec(&raw->raw_pkt.pkt_chain);
+    if (iovlen < 0) return (errno = EINVAL), -1;
+    struct msghdr msghdr = {
+        .msg_iov = ln_chain_iov,
+        .msg_iovlen = iovlen,
+    };
+    return sendmsg(raw->raw_fd, &msghdr, MSG_DONTWAIT);
+}
+
+struct ln_pkt_raw * ln_pkt_raw_dec(struct ln_pkt * parent_pkt) {
+    // copy/no-op, not very useful
+    struct ln_chain * chain = &parent_pkt->pkt_chain;
+    size_t raw_len = ln_chain_len(chain);
+    uchar * rpos = chain->chain_pos;
+
+    struct ln_pkt_raw * raw = calloc(1, sizeof *raw);
+    if (raw == NULL) return NULL;
+
+    raw->raw_fd = -1;
+    raw->raw_pkt.pkt_parent = parent_pkt;
+    raw->raw_pkt.pkt_type = ln_pkt_type_raw;
+    ln_chain_readref(&chain, &rpos, &raw->raw_pkt.pkt_chain, raw_len);
+
+    ln_pkt_incref(parent_pkt);
+    return raw;
 }
 
 int ln_pkt_raw_fdump(struct ln_pkt_raw * raw, FILE * stream) {
-    return fprintf(stream, "[raw len=%-4zu source=%#lx]",
-                    ln_chain_len(&raw->raw_chain),
-                    (uintptr_t) raw->raw_src);
+    return fprintf(stream, "[raw len=%-4zu fd=%d]",
+                    ln_chain_len(&raw->raw_pkt.pkt_chain),
+                    raw->raw_fd);
 }
 
 // struct ln_pkt_eth
 
 //TODO: There's at least 2 bytes missing, maybe CRC? 
-struct ln_pkt_eth * ln_pkt_eth_create_raw(struct ln_pkt_raw * raw) {
-    struct ln_chain * raw_chain = &raw->raw_chain;
+struct ln_pkt * ln_pkt_eth_dec(struct ln_pkt * parent_pkt) {
+    struct ln_chain * raw_chain = &parent_pkt->pkt_chain;
     size_t raw_len = ln_chain_len(raw_chain);
     uchar * rpos = raw_chain->chain_pos;
 
@@ -43,9 +122,6 @@ struct ln_pkt_eth * ln_pkt_eth_create_raw(struct ln_pkt_raw * raw) {
     struct ln_pkt_eth * eth = calloc(1, sizeof *eth);
     if (eth == NULL) return NULL;
 
-    eth->eth_raw = raw;
-    ln_pkt_raw_incref(raw);
-    
     size_t header_size = 18;
     ln_chain_read(&raw_chain, &rpos, &eth->eth_dst, sizeof eth->eth_dst);
     ln_chain_read(&raw_chain, &rpos, &eth->eth_src, sizeof eth->eth_src);
@@ -56,24 +132,30 @@ struct ln_pkt_eth * ln_pkt_eth_create_raw(struct ln_pkt_raw * raw) {
         ln_chain_read(&raw_chain, &rpos, &eth->eth_tag, sizeof eth->eth_tag);
         eth->eth_tag = ntohl(eth->eth_tag);
     }
-    ln_chain_readref(&raw_chain, &rpos, &eth->eth_chain, raw_len - header_size);
+    ln_chain_readref(&raw_chain, &rpos, &eth->eth_pkt.pkt_chain, raw_len - header_size);
     ln_chain_read(&raw_chain, &rpos, &eth->eth_crc, sizeof eth->eth_crc);
     eth->eth_crc = ntohl(eth->eth_crc);
 
-    return eth;
-}
+    eth->eth_pkt.pkt_parent = parent_pkt;
+    eth->eth_pkt.pkt_type = ln_pkt_type_eth;
+    ln_pkt_incref(parent_pkt);
 
-void ln_pkt_eth_decref(struct ln_pkt_eth * eth) {
-    if(!eth->eth_refcnt--) {
-        if (eth->eth_raw != NULL)
-            ln_pkt_raw_decref(eth->eth_raw);
-        ln_chain_term(&eth->eth_chain);
-        free(eth);
+    // Higher-level decode
+    struct ln_pkt * ret_pkt = &eth->eth_pkt;
+    switch (eth->eth_type) {
+    case LN_PROTO_ETH_TYPE_IPV4:
+        ret_pkt = ln_pkt_ipv4_dec(&eth->eth_pkt);
+        if (ret_pkt == NULL) ret_pkt = &eth->eth_pkt;
+        break;
+    case LN_PROTO_ETH_TYPE_ARP:
+    case LN_PROTO_ETH_TYPE_IPV6:
+        break;
+    default:
+        INFO("Unknown ethertype %#04x", eth->eth_type);
+        break;
     }
-}
 
-void ln_pkt_eth_incref(struct ln_pkt_eth * eth) {
-    eth->eth_refcnt++;
+    return ret_pkt;
 }
 
 int ln_pkt_eth_fdump(struct ln_pkt_eth * eth, FILE * stream) {
@@ -82,7 +164,7 @@ int ln_pkt_eth_fdump(struct ln_pkt_eth * eth, FILE * stream) {
                            " src=%02x:%02x:%02x:%02x:%02x:%02x"
                            " dst=%02x:%02x:%02x:%02x:%02x:%02x"
                            " type=%#04x]",
-                    ln_chain_len(&eth->eth_chain),
+                    ln_chain_len(&eth->eth_pkt.pkt_chain),
                     eth->eth_src[0], eth->eth_src[1], eth->eth_src[2],
                     eth->eth_src[3], eth->eth_src[4], eth->eth_src[5],
                     eth->eth_dst[0], eth->eth_dst[1], eth->eth_dst[2],
@@ -92,8 +174,8 @@ int ln_pkt_eth_fdump(struct ln_pkt_eth * eth, FILE * stream) {
 
 // struct ln_pkt_ipv4
 
-struct ln_pkt_ipv4 * ln_pkt_ipv4_create_eth(struct ln_pkt_eth * eth) {
-    struct ln_chain * eth_chain = &eth->eth_chain;
+struct ln_pkt * ln_pkt_ipv4_dec(struct ln_pkt * parent_pkt) {
+    struct ln_chain * eth_chain = &parent_pkt->pkt_chain;
     size_t eth_len = ln_chain_len(eth_chain);
     uchar * rpos = eth_chain->chain_pos;
 
@@ -106,9 +188,6 @@ struct ln_pkt_ipv4 * ln_pkt_ipv4_create_eth(struct ln_pkt_eth * eth) {
 
     struct ln_pkt_ipv4 * ipv4 = calloc(1, sizeof *ipv4);
     if (ipv4 == NULL) return NULL;
-
-    ipv4->ipv4_eth = eth;
-    ln_pkt_eth_incref(eth);
 
     uint8_t ihl;
     ln_chain_read_ntoh(&eth_chain, &rpos, &ihl);
@@ -130,26 +209,32 @@ struct ln_pkt_ipv4 * ln_pkt_ipv4_create_eth(struct ln_pkt_eth * eth) {
     ln_chain_read_ntoh(&eth_chain, &rpos, &ipv4->ipv4_src);
     ln_chain_read_ntoh(&eth_chain, &rpos, &ipv4->ipv4_dst);
     ln_chain_read(&eth_chain, &rpos, &ipv4->ipv4_opts, 4 * ihl - 20);
-    ln_chain_readref(&eth_chain, &rpos, &ipv4->ipv4_chain, len);
-    return ipv4;
+    ln_chain_readref(&eth_chain, &rpos, &ipv4->ipv4_pkt.pkt_chain, len);
+
+    ipv4->ipv4_pkt.pkt_parent = parent_pkt;
+    ipv4->ipv4_pkt.pkt_type = ln_pkt_type_ipv4;
+    ln_pkt_incref(parent_pkt);
+
+    // Higher-level decode
+    struct ln_pkt * ret_pkt = &ipv4->ipv4_pkt;
+    switch (ipv4->ipv4_proto) {
+    case LN_PROTO_IPV4_PROTO_UDP:
+        ret_pkt = ln_pkt_udp_dec(&ipv4->ipv4_pkt);
+        if (ret_pkt == NULL) ret_pkt = &ipv4->ipv4_pkt;
+        break;
+    case LN_PROTO_IPV4_PROTO_TCP:
+    case LN_PROTO_IPV4_PROTO_ICMP:
+        break;
+    default:
+        INFO("Unknown IP proto %#02x", ipv4->ipv4_proto);
+        break;
+    }
+
+    return ret_pkt;
 
 fail:
-    ln_pkt_eth_decref(eth);
     free(ipv4);
     return NULL;
-}
-
-void ln_pkt_ipv4_decref(struct ln_pkt_ipv4 * ipv4) {
-    if(!ipv4->ipv4_refcnt--) {
-        if (ipv4->ipv4_eth != NULL)
-            ln_pkt_eth_decref(ipv4->ipv4_eth);
-        ln_chain_term(&ipv4->ipv4_chain);
-        free(ipv4);
-    }
-}
-
-void ln_pkt_ipv4_incref(struct ln_pkt_ipv4 * ipv4) {
-    ipv4->ipv4_refcnt++;
 }
 
 int ln_pkt_ipv4_fdump(struct ln_pkt_ipv4 * ipv4, FILE * stream) {
@@ -162,7 +247,7 @@ int ln_pkt_ipv4_fdump(struct ln_pkt_ipv4 * ipv4, FILE * stream) {
                            " src=%hhu.%hhu.%hhu.%hhu"
                            " dst=%hhu.%hhu.%hhu.%hhu"
                            " proto=%#04x]",
-                    ln_chain_len(&ipv4->ipv4_chain),
+                    ln_chain_len(&ipv4->ipv4_pkt.pkt_chain),
                     src_ip[3], src_ip[2], src_ip[1], src_ip[0],
                     dst_ip[3], dst_ip[2], dst_ip[1], dst_ip[0],
                     ipv4->ipv4_proto);
@@ -210,20 +295,8 @@ int ln_pkt_ipv4_write_finish(struct ln_pkt_ipv4 * ipv4, size_t sz) {
 */
 
 // struct ln_pkt_udp
-static struct ln_pkt_udp * ln_pkt_udp_create_chain(struct ln_chain * chain);
-
-struct ln_pkt_udp * ln_pkt_udp_create_ipv4(struct ln_pkt_ipv4 * ipv4) {
-    struct ln_chain * ipv4_chain = &ipv4->ipv4_chain;
-
-    struct ln_pkt_udp * udp = ln_pkt_udp_create_chain(ipv4_chain);
-    if (udp == NULL) return NULL;
-    udp->udp_ipv4 = ipv4;
-    ln_pkt_ipv4_incref(ipv4);
-
-    return udp;
-}
-    
-static struct ln_pkt_udp * ln_pkt_udp_create_chain(struct ln_chain * chain) {
+struct ln_pkt * ln_pkt_udp_dec(struct ln_pkt * parent_pkt) {
+    struct ln_chain * chain = &parent_pkt->pkt_chain;
     size_t chain_len = ln_chain_len(chain);
     uchar * rpos = chain->chain_pos;
 
@@ -245,25 +318,19 @@ static struct ln_pkt_udp * ln_pkt_udp_create_chain(struct ln_chain * chain) {
     if (udp_len < chain_len)
         INFO("Extra bytes: %zu", udp_len - chain_len);
 
-    ln_chain_readref(&chain, &rpos, &udp->udp_chain, udp_len);
-    return udp;
+    ln_chain_readref(&chain, &rpos, &udp->udp_pkt.pkt_chain, udp_len);
+
+    udp->udp_pkt.pkt_parent = parent_pkt;
+    udp->udp_pkt.pkt_type = ln_pkt_type_udp;
+    ln_pkt_incref(parent_pkt);
+
+    // Higher-level decode: TODO
+    struct ln_pkt * ret_pkt = &udp->udp_pkt;
+    return ret_pkt;
 
 fail:
     free(udp);
     return NULL;
-}
-
-void ln_pkt_udp_decref(struct ln_pkt_udp * udp) {
-    if(!udp->udp_refcnt--) {
-        if (udp->udp_ipv4 != NULL)
-            ln_pkt_ipv4_decref(udp->udp_ipv4);
-        ln_chain_term(&udp->udp_chain);
-        free(udp);
-    }
-}
-
-void ln_pkt_udp_incref(struct ln_pkt_udp * udp) {
-    udp->udp_refcnt++;
 }
 
 int ln_pkt_udp_fdump(struct ln_pkt_udp * udp, FILE * stream) {
@@ -271,7 +338,7 @@ int ln_pkt_udp_fdump(struct ln_pkt_udp * udp, FILE * stream) {
                            " len=%-4zu"
                            " src=%hu"
                            " dst=%hu]",
-                    ln_chain_len(&udp->udp_chain),
+                    ln_chain_len(&udp->udp_pkt.pkt_chain),
                     udp->udp_src,
                     udp->udp_dst);
 }
