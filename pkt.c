@@ -21,8 +21,15 @@ void ln_pkt_raw_incref(struct ln_pkt_raw * raw) {
     raw->raw_refcnt++;
 }
 
+int ln_pkt_raw_fdump(struct ln_pkt_raw * raw, FILE * stream) {
+    return fprintf(stream, "[raw len=%-4zu source=%#lx]",
+                    ln_chain_len(&raw->raw_chain),
+                    (uintptr_t) raw->raw_src);
+}
+
 // struct ln_pkt_eth
 
+//TODO: There's at least 2 bytes missing, maybe CRC? 
 struct ln_pkt_eth * ln_pkt_eth_create_raw(struct ln_pkt_raw * raw) {
     struct ln_chain * raw_chain = &raw->raw_chain;
     size_t raw_len = ln_chain_len(raw_chain);
@@ -71,7 +78,7 @@ void ln_pkt_eth_incref(struct ln_pkt_eth * eth) {
 
 int ln_pkt_eth_fdump(struct ln_pkt_eth * eth, FILE * stream) {
     return fprintf(stream, "[eth"
-                           " len=%zu"
+                           " len=%-4zu"
                            " src=%02x:%02x:%02x:%02x:%02x:%02x"
                            " dst=%02x:%02x:%02x:%02x:%02x:%02x"
                            " type=%#04x]",
@@ -109,9 +116,9 @@ struct ln_pkt_ipv4 * ln_pkt_ipv4_create_eth(struct ln_pkt_eth * eth) {
     ln_chain_read_ntoh(&eth_chain, &rpos, &ipv4->ipv4_dscp_ecn);
     uint16_t len;
     ln_chain_read_ntoh(&eth_chain, &rpos, &len);
-    if (len < 20 + 4 * ihl) {
+    if (len < 4 * ihl) {
         errno = EINVAL; goto fail; }
-    len -= 20 + 4 * ihl;
+    len -= 4 * ihl;
     ln_chain_read_ntoh(&eth_chain, &rpos, &ipv4->ipv4_id);
     uint16_t flags_fragoff;
     ln_chain_read_ntoh(&eth_chain, &rpos, &flags_fragoff);
@@ -122,7 +129,7 @@ struct ln_pkt_ipv4 * ln_pkt_ipv4_create_eth(struct ln_pkt_eth * eth) {
     ln_chain_read_ntoh(&eth_chain, &rpos, &ipv4->ipv4_crc);
     ln_chain_read_ntoh(&eth_chain, &rpos, &ipv4->ipv4_src);
     ln_chain_read_ntoh(&eth_chain, &rpos, &ipv4->ipv4_dst);
-    ln_chain_read(&eth_chain, &rpos, &ipv4->ipv4_opts, 4 * ihl);
+    ln_chain_read(&eth_chain, &rpos, &ipv4->ipv4_opts, 4 * ihl - 20);
     ln_chain_readref(&eth_chain, &rpos, &ipv4->ipv4_chain, len);
     return ipv4;
 
@@ -151,7 +158,7 @@ int ln_pkt_ipv4_fdump(struct ln_pkt_ipv4 * ipv4, FILE * stream) {
     memcpy(src_ip, &ipv4->ipv4_src, 4);
     memcpy(dst_ip, &ipv4->ipv4_dst, 4);
     return fprintf(stream, "[ipv4"
-                           " len=%zu"
+                           " len=%-4zu"
                            " src=%hhu.%hhu.%hhu.%hhu"
                            " dst=%hhu.%hhu.%hhu.%hhu"
                            " proto=%#04x]",
@@ -201,3 +208,70 @@ int ln_pkt_ipv4_write_finish(struct ln_pkt_ipv4 * ipv4, size_t sz) {
 
 }
 */
+
+// struct ln_pkt_udp
+static struct ln_pkt_udp * ln_pkt_udp_create_chain(struct ln_chain * chain);
+
+struct ln_pkt_udp * ln_pkt_udp_create_ipv4(struct ln_pkt_ipv4 * ipv4) {
+    struct ln_chain * ipv4_chain = &ipv4->ipv4_chain;
+
+    struct ln_pkt_udp * udp = ln_pkt_udp_create_chain(ipv4_chain);
+    if (udp == NULL) return NULL;
+    udp->udp_ipv4 = ipv4;
+    ln_pkt_ipv4_incref(ipv4);
+
+    return udp;
+}
+    
+static struct ln_pkt_udp * ln_pkt_udp_create_chain(struct ln_chain * chain) {
+    size_t chain_len = ln_chain_len(chain);
+    uchar * rpos = chain->chain_pos;
+
+    if (chain_len < LN_PROTO_UDP_HEADER_LEN)
+        return (errno = EINVAL), NULL;
+
+    struct ln_pkt_udp * udp = calloc(1, sizeof *udp);
+    if (udp == NULL) return NULL;
+
+    uint16_t udp_len = 0;
+    ln_chain_read_ntoh(&chain, &rpos, &udp->udp_src);
+    ln_chain_read_ntoh(&chain, &rpos, &udp->udp_dst);
+    ln_chain_read_ntoh(&chain, &rpos, &udp_len);
+    ln_chain_read_ntoh(&chain, &rpos, &udp->udp_crc);
+    
+    // Check packet size
+    if (udp_len > chain_len)
+        goto fail;
+    if (udp_len < chain_len)
+        INFO("Extra bytes: %zu", udp_len - chain_len);
+
+    ln_chain_readref(&chain, &rpos, &udp->udp_chain, udp_len);
+    return udp;
+
+fail:
+    free(udp);
+    return NULL;
+}
+
+void ln_pkt_udp_decref(struct ln_pkt_udp * udp) {
+    if(!udp->udp_refcnt--) {
+        if (udp->udp_ipv4 != NULL)
+            ln_pkt_ipv4_decref(udp->udp_ipv4);
+        ln_chain_term(&udp->udp_chain);
+        free(udp);
+    }
+}
+
+void ln_pkt_udp_incref(struct ln_pkt_udp * udp) {
+    udp->udp_refcnt++;
+}
+
+int ln_pkt_udp_fdump(struct ln_pkt_udp * udp, FILE * stream) {
+    return fprintf(stream, "[udp"
+                           " len=%-4zu"
+                           " src=%hu"
+                           " dst=%hu]",
+                    ln_chain_len(&udp->udp_chain),
+                    udp->udp_src,
+                    udp->udp_dst);
+}

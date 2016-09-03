@@ -11,13 +11,11 @@ OBJECTS = $(C_SRC:%.c=$(OBJDIR)/%.o)
 # Compiler flags
 INC = -I.
 
-LIBRARIES = 
-
-CFLAGS = -std=c99 -ggdb3 -Og 
+CFLAGS = -std=gnu99 -ggdb3 -Og 
 CFLAGS += $(INC)
 CFLAGS += -Wall -Wextra -Werror -Wno-unused-parameter
 CFLAGS += -D_POSIX_C_SOURCE=20160619
-LFLAGS = $(CFLAGS)
+LFLAGS = -L libdill/.libs -ldill
 
 # File dependency generation
 DEPDIR = .deps
@@ -29,14 +27,14 @@ $(DEPDIR)/%.d : %.c .deps
 	@$(CC) $(CFLAGS) $< -MM -MT $(@:$(DEPDIR)/%.d=%.o) >$@
 
 # Targets
-$(TARGET): $(OBJECTS) libdill/ibdill.la
-	$(CC) $(LFLAGS) -o $@ $< $(LIBRARIES)
+$(TARGET): $(OBJECTS) libdill/.libs/libdill.a
+	$(CC) $(CFLAGS) $(LFLAGS) -o $@ $+
 
 $(OBJDIR)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(APP_INC) -c -o $@ $<
 
-libdill/ibdill.la:
+libdill/.libs/libdill.a:
 	$(MAKE) -C libdill
 
 .PHONY: all

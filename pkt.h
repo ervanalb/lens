@@ -11,6 +11,7 @@ struct ln_pkt_raw {
 struct ln_pkt_raw * ln_pkt_raw_create(const void * src);
 void ln_pkt_raw_decref(struct ln_pkt_raw * raw);
 void ln_pkt_raw_incref(struct ln_pkt_raw * raw);
+int ln_pkt_raw_fdump(struct ln_pkt_raw * raw, FILE * stream);
 
 //
 
@@ -88,3 +89,28 @@ struct ln_pkt_tcp {
 
     struct ln_chain tcp_chain;
 };
+
+struct ln_conn_tcp {
+    // TODO; also move to tcp.c?
+};
+
+//
+//
+#define LN_PROTO_UDP_PAYLOAD_LEN_MAX ((size_t) 65535)
+#define LN_PROTO_UDP_HEADER_LEN ((size_t) 8)
+
+struct ln_pkt_udp {
+    struct ln_pkt_ipv4 * udp_ipv4;
+    refcnt_t udp_refcnt;
+
+    uint16_t udp_src;
+    uint16_t udp_dst;
+    uint16_t udp_crc;
+
+    struct ln_chain udp_chain;
+};
+
+struct ln_pkt_udp * ln_pkt_udp_create_ipv4(struct ln_pkt_ipv4 * ipv4);
+void ln_pkt_udp_decref(struct ln_pkt_udp * udp);
+void ln_pkt_udp_incref(struct ln_pkt_udp * udp);
+int ln_pkt_udp_fdump(struct ln_pkt_udp * udp, FILE * stream);
