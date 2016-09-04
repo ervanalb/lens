@@ -21,99 +21,7 @@
 
 enum loglevel loglevel = LOGLEVEL_INFO;
 
-/*
-void coroutine ln_run_read_ipv4(int ipv4_in, int udp_out) {
-    while (1) {
-        struct ln_pkt_ipv4 * ipv4 = NULL;
-        int rc = chrecv(ipv4_in, &ipv4, sizeof ipv4, -1);
-        if (rc < 0) goto fail;
-
-        switch (ipv4->ipv4_proto) {
-        case LN_PROTO_IPV4_PROTO_UDP:;
-            struct ln_pkt_udp * udp = ln_pkt_udp_dec(&ipv4->ipv4_pkt);
-            if (udp == NULL) {
-                WARN("Skipping packet");
-            } else {
-                ln_pkt_fdumpall(&udp->udp_pkt, stderr);
-                fprintf(stderr, "\n");
-                //rc = chsend(ipv4_out, &ipv4, sizeof ipv4, -1);
-                //if (rc < 0) goto fail;
-                ln_pkt_decref(&udp->udp_pkt);
-            }
-            break;
-        case LN_PROTO_IPV4_PROTO_ICMP:
-            INFO("ICMP");
-            break;
-        case LN_PROTO_IPV4_PROTO_TCP:
-            INFO("TCP");
-            break;
-        default:
-            INFO("Unknown proto %#02x", ipv4->ipv4_proto);
-            break;
-        }
-
-        ln_pkt_decref(&ipv4->ipv4_pkt);
-    }
-
-fail:
-    PERROR("fail");
-    return;
-}
-
-void coroutine ln_run_read_eth(int eth_in, int ipv4_out) {
-    while (1) {
-        struct ln_pkt_eth * eth = NULL;
-        int rc = chrecv(eth_in, &eth, sizeof eth, -1);
-        if (rc < 0) goto fail;
-
-        switch (eth->eth_type) {
-        case LN_PROTO_ETH_TYPE_IPV4:;
-            struct ln_pkt_ipv4 * ipv4 = ln_pkt_ipv4_dec(&eth->eth_pkt);
-            if (ipv4 == NULL) {
-                WARN("Skipping packet");
-            } else {
-                rc = chsend(ipv4_out, &ipv4, sizeof ipv4, -1);
-                if (rc < 0) goto fail;
-            }
-            break;
-        default:
-            INFO("Unknown ethertype %#04x", eth->eth_type);
-            break;
-        }
-
-        ln_pkt_eth_decref(eth);
-    }
-
-fail:
-    PERROR("fail");
-    return;
-}
-
-void coroutine ln_run_read_raw(int raw_in, int eth_out) {
-    while (1) {
-        struct ln_pkt_raw * raw;
-        int rc = chrecv(raw_in, &raw, sizeof raw, -1);
-        if (rc < 0) goto fail;
-
-        struct ln_pkt_eth * eth = ln_pkt_eth_dec_raw(raw);
-        if (eth == NULL) {
-            WARN("Skipping packet");
-            ln_pkt_raw_fdump(raw, stderr);
-            fprintf(stderr, "\n");
-        } else {
-            rc = chsend(eth_out, &eth, sizeof eth, -1);
-            if (rc < 0) goto fail;
-        }
-        ln_pkt_decref(&raw->raw_pkt);
-    }
-
-fail:
-    PERROR("fail");
-    return;
-}
-*/
-
-void coroutine ln_run_read_sock(int sock, int raw_out) {
+void coroutine ln_run_read_sock(int sock, int pkt_out) {
     int * sock_src = calloc(1, 1); // random id; memory leak is ok
     if (sock_src == NULL) goto fail;
 
@@ -129,7 +37,7 @@ void coroutine ln_run_read_sock(int sock, int raw_out) {
         struct ln_pkt * dec_pkt = ln_pkt_eth_dec(&raw->raw_pkt);
         if (dec_pkt == NULL) goto fail; // Unable to decode at least ethernet
 
-        //rc = chsend(raw_out, &raw, sizeof raw, -1);
+        //rc = chsend(pkt_out, &raw, sizeof raw, -1);
         //if (rc < 0) goto fail;
         ln_pkt_fdumpall(dec_pkt, stderr);
         fprintf(stderr, "\n");
@@ -141,21 +49,26 @@ fail:
     return;
 }
 
-void coroutine ln_run_write_sock(int sock, int raw_in) {
+void coroutine ln_run_write_sock(int sock, int pkt_in) {
     while (1) {
         int rc = fdout(sock, -1);
         if (rc < 0) goto fail;
 
-        struct ln_pkt_raw * raw = NULL;
-        rc = chrecv(raw_in, &raw, sizeof raw, -1);
+        struct ln_pkt * pkt = NULL;
+        rc = chrecv(pkt_in, &pkt, sizeof pkt, -1);
         if (rc < 0) goto fail;
 
+        struct ln_pkt * enc_pkt = ln_pkt_enc(pkt, 0);
+        if (enc_pkt == NULL) goto fail;
+        struct ln_pkt_raw * pkt_raw = LN_PKT_CAST(enc_pkt, raw);
+        if (pkt_raw == NULL) goto fail;
+
         do {
-            rc = ln_pkt_raw_fsend(raw);
+            rc = ln_pkt_raw_fsend(pkt_raw);
         } while (rc < 0 && errno == EAGAIN);
         if (rc < 0) goto fail;
 
-        ln_pkt_decref(&raw->raw_pkt);
+        ln_pkt_decref(pkt);
     }
 
 fail:
@@ -163,29 +76,31 @@ fail:
     return;
 }
 
-void coroutine ln_run_setup_sock(int ctl, int sock) {
-    int raw_rx = channel(sizeof(struct ln_pkt_raw *), 16);
-    if (raw_rx < 0) PFAIL("Unable to open raw_rx channel");
-    int raw_tx = channel(sizeof(struct ln_pkt_raw *), 16);
-    if (raw_tx < 0) PFAIL("Unable to open raw_tx channel");
-
-    go(ln_run_read_sock(sock, raw_rx));
-    go(ln_run_write_sock(sock, raw_tx));
-
-    //ln_run_setup_eth(ctl, raw_rx, raw_tx);
-}
-
 int main(int argc, char ** argv) {
     int raw_sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
     if (raw_sock < 0) PFAIL("Unable to open socket");
 
-    int ctl = channel(1, 1);
-    if (ctl < 0) PFAIL("Unable to create control channel");
+    //int ctl = channel(1, 1);
+    //if (ctl < 0) PFAIL("Unable to create control channel");
 
-    go(ln_run_setup_sock(ctl, raw_sock));
+    int pkt_rx = channel(sizeof(struct ln_pkt_pkt *), 16);
+    if (pkt_rx < 0) PFAIL("Unable to open pkt_rx channel");
+    int pkt_tx = channel(sizeof(struct ln_pkt_pkt *), 16);
+    if (pkt_tx < 0) PFAIL("Unable to open pkt_tx channel");
 
-    // There's probably something more clever to do here
-    while(1) msleep(-1);
+    go(ln_run_read_sock(raw_sock, pkt_rx));
+    go(ln_run_write_sock(raw_sock, pkt_tx));
+
+    while(1) {
+        struct ln_pkt * pkt = NULL;
+        int rc = chrecv(pkt_rx, &pkt, sizeof pkt, -1);
+        if (rc < 0) FAIL("chrecv failed");
+
+        // Do something with pkt here
+
+        //rc = chsend(pkt_tx, &pkt, sizeof pkt, -1);
+        //if (rc < 0) FAIL("chsend failed");
+    }
 
     return 0;
 }
