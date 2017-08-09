@@ -85,4 +85,3 @@ This coroutine calls ``self.parent.write(dst, header, payload)``. It is for furt
 - ``Layer.passthru(self, src, header, payload)``
 
 This convenience coroutine will call ``self.write_back(dst, ...)`` with ``dst`` resolved from ``src``.
-
