@@ -20,7 +20,7 @@ You can reach us through github, or our emails are listed in our github profiles
 Hardware
 ========
 
-A network cable can be punched-down into the *lens* tap board in two places without cutting any wires. The tap board the provides a redundant copper path through a set of relays. Once all of the wires have been punched down, in two places, they can be cut so that the signals are now routed through the relays on the tap board.
+The wires of a network cable can be punched down into the *lens* tap board in two places without interrupting the packet flow. The tap board then provides a redundant copper path through a set of relays. Once all of the wires have been punched down on both sides, they can be cut so that the signals are now routed only through the relays on the tap board.
 
 One or two additional NICs are connected to the tap board on its TAP ports. These, along with a USB link, are connected to a computer. The computer can command the relays over USB to assume either a passive or active tap topology, or a transparent pass-through mode.
 
