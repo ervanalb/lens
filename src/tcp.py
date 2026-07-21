@@ -264,7 +264,7 @@ class TCPLayer(NetLayer):
             dst_conn["seq_start"] = pkt.seq 
             src_conn["ack_start"] = pkt.seq
 
-            # min_payload can be overriden by write()'ing None
+            # min_payload can be overridden by write()'ing None
             src_conn["min_segment_size"] = 1
             src_conn["max_segment_size"] = self.DEFAULT_MSS
             src_conn["payload_sizes"] = collections.Counter()
